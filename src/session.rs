@@ -11,6 +11,7 @@ use crate::tmux;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionStatus {
+    New,
     Working,
     Idle,
     Input,
@@ -19,6 +20,7 @@ pub enum SessionStatus {
 impl SessionStatus {
     pub fn label(&self) -> &str {
         match self {
+            SessionStatus::New => "New",
             SessionStatus::Working => "Working",
             SessionStatus::Idle => "Idle",
             SessionStatus::Input => "Input",
@@ -180,6 +182,13 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
         let tmux_session = proc
             .and_then(|p| tty_map.get(&p.tty).cloned());
 
+        let status = determine_status(
+            &path,
+            info.input_tokens,
+            info.output_tokens,
+            tmux_session.as_deref(),
+        );
+
         sessions.push(Session {
             session_id,
             project_name,
@@ -188,7 +197,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             model: info.model,
             total_input_tokens: info.input_tokens,
             total_output_tokens: info.output_tokens,
-            status: info.status,
+            status,
             pid: Some(pid),
             last_activity: info.last_activity,
             jsonl_path: path,
@@ -219,7 +228,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             model: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
-            status: SessionStatus::Input,
+            status: SessionStatus::New,
             pid: None,
             last_activity: None,
             jsonl_path: PathBuf::new(),
@@ -343,7 +352,7 @@ fn parse_jsonl(
             model: prev_model,
             cwd: None,
             last_activity: None,
-            status: determine_status_from_file(path),
+            status: SessionStatus::Idle, // placeholder, resolved later
             file_size,
         };
     }
@@ -410,7 +419,7 @@ fn parse_jsonl(
     }
 
     // Get status from the last entry in the file
-    let status = determine_status_from_file(path);
+    let status = SessionStatus::Idle; // placeholder, resolved later
 
     ParsedInfo {
         input_tokens: total_input,
@@ -423,53 +432,53 @@ fn parse_jsonl(
     }
 }
 
-/// Determine session status from the last JSONL entry and file recency.
-fn determine_status_from_file(path: &Path) -> SessionStatus {
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return SessionStatus::Idle,
-    };
-    let meta = match file.metadata() {
-        Ok(m) => m,
-        Err(_) => return SessionStatus::Idle,
-    };
-    let file_size = meta.len();
-    if file_size == 0 {
-        return SessionStatus::Idle;
+/// Determine session status from file recency and token counts.
+/// - New: no tokens yet (never interacted)
+/// - Working: JSONL modified in last 5s
+/// - Input: last activity within 10 minutes (active conversation, waiting for user)
+/// - Idle: last activity older than 10 minutes
+fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, tmux_session: Option<&str>) -> SessionStatus {
+    if input_tokens == 0 && output_tokens == 0 {
+        return SessionStatus::New;
     }
 
-    // If the file hasn't been modified in the last 30 seconds,
-    // the session is idle regardless of what the last entry says.
-    if let Ok(modified) = meta.modified() {
-        if let Ok(elapsed) = modified.elapsed() {
-            if elapsed > Duration::from_secs(5) {
-                return SessionStatus::Idle;
-            }
-        }
+    // tmux pane content is the source of truth
+    if let Some(name) = tmux_session {
+        pane_status(name)
+    } else {
+        SessionStatus::Idle
     }
+}
 
-    // Read last ~4KB to find the last meaningful entry
-    let mut reader = BufReader::new(file);
-    let start = if file_size > 4096 { file_size - 4096 } else { 0 };
-    let _ = reader.seek(SeekFrom::Start(start));
+/// Determine status by inspecting the tmux pane content.
+fn pane_status(session_name: &str) -> SessionStatus {
+    let output = match std::process::Command::new("tmux")
+        .args(["capture-pane", "-t", session_name, "-p", "-S", "-5"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return SessionStatus::Idle,
+    };
 
-    let mut buf = String::new();
-    let _ = reader.read_to_string(&mut buf);
+    let content = String::from_utf8_lossy(&output.stdout);
 
-    for line in buf.lines().rev() {
+    for line in content.lines().rev() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        if trimmed.contains("\"subtype\":\"turn_duration\"") {
-            return SessionStatus::Input;
-        }
-        if trimmed.contains("\"type\":\"user\"") || trimmed.contains("\"type\":\"assistant\"") {
+        // Agent is running a tool/command
+        if trimmed.contains("(running)") || trimmed.contains("Streaming") {
             return SessionStatus::Working;
         }
-        if trimmed.contains("\"type\":\"system\"") {
-            return SessionStatus::Idle;
+        // Permission prompt — blocked on user action
+        if trimmed.starts_with("Do you want to")
+            || trimmed.starts_with("❯ 1.")
+            || trimmed.contains("Esc to cancel")
+        {
+            return SessionStatus::Input;
         }
+        break;
     }
 
     SessionStatus::Idle

@@ -50,6 +50,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
                 .unwrap_or("—");
 
             let status_style = match session.status {
+                SessionStatus::New => Style::default().fg(Color::Blue),
                 SessionStatus::Working => Style::default().fg(Color::Green),
                 SessionStatus::Idle => Style::default().fg(Color::DarkGray),
                 SessionStatus::Input => Style::default()
