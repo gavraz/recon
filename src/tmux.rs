@@ -16,26 +16,28 @@ pub fn switch_to_session(name: &str) {
     }
 }
 
+/// The shell snippet appended after the claude command. When claude exits, it
+/// finds the session file created during this invocation and shows the resume
+/// command in the tmux status bar.
+const EXIT_SNIPPET: &str = r#"
+for f in ~/.claude/sessions/*.json; do
+  [ "$f" -nt "$_RECON_MARKER" ] || continue
+  SID=$(jq -r '.sessionId // empty' "$f" 2>/dev/null)
+  [ -n "$SID" ] && { tmux display-message -d 0 "recon --resume $SID"; break; }
+done
+rm -f "$_RECON_MARKER"
+"#;
+
 /// Launch claude in a new tmux session with the given name and working directory.
 /// Returns the session name on success.
 pub fn create_session(name: &str, cwd: &str) -> Result<String, String> {
     let base_name = sanitize_session_name(name);
-
-    // Always create a new session — append -2, -3, etc. if name taken
-    let session_name = if !session_exists(&base_name) {
-        base_name.clone()
-    } else {
-        let mut n = 2;
-        loop {
-            let candidate = format!("{base_name}-{n}");
-            if !session_exists(&candidate) {
-                break candidate;
-            }
-            n += 1;
-        }
-    };
+    let session_name = unique_session_name(&base_name);
 
     let claude_path = which_claude().unwrap_or_else(|| "claude".to_string());
+    let wrapper = format!(
+        "_RECON_MARKER=$(mktemp); \"{claude_path}\"; {EXIT_SNIPPET}"
+    );
     let status = Command::new("tmux")
         .args([
             "new-session",
@@ -44,7 +46,9 @@ pub fn create_session(name: &str, cwd: &str) -> Result<String, String> {
             &session_name,
             "-c",
             cwd,
-            &claude_path,
+            "bash",
+            "-c",
+            &wrapper,
         ])
         .status()
         .map_err(|e| format!("Failed to create tmux session: {e}"))?;
@@ -53,7 +57,6 @@ pub fn create_session(name: &str, cwd: &str) -> Result<String, String> {
         return Err("tmux new-session failed".to_string());
     }
 
-    set_resume_on_exit_hook(&session_name);
     Ok(session_name)
 }
 
@@ -64,29 +67,20 @@ pub fn resume_session(session_id: &str, name: Option<&str>) -> Result<String, St
         .unwrap_or_else(|| session_id[..6.min(session_id.len())].to_string());
 
     // Use the original session's cwd so we start in the right project directory.
-    // Fall back to current directory if not found.
     let cwd = session::find_session_cwd(session_id)
         .or_else(|| std::env::current_dir().map(|p| p.to_string_lossy().to_string()).ok())
         .unwrap_or_else(|| ".".to_string());
 
     let base_name = sanitize_session_name(&tmux_name);
-    let session_name = if !session_exists(&base_name) {
-        base_name.clone()
-    } else {
-        let mut n = 2;
-        loop {
-            let candidate = format!("{base_name}-{n}");
-            if !session_exists(&candidate) {
-                break candidate;
-            }
-            n += 1;
-        }
-    };
+    let session_name = unique_session_name(&base_name);
 
     let claude_path = which_claude().unwrap_or_else(|| "claude".to_string());
     // Store the original session-id in the tmux session environment so recon can
     // find the right JSONL without parsing process command lines.
     let env_var = format!("RECON_RESUMED_FROM={session_id}");
+    let wrapper = format!(
+        "_RECON_MARKER=$(mktemp); \"{claude_path}\" --resume \"{session_id}\"; {EXIT_SNIPPET}"
+    );
     let status = Command::new("tmux")
         .args([
             "new-session",
@@ -97,9 +91,9 @@ pub fn resume_session(session_id: &str, name: Option<&str>) -> Result<String, St
             &cwd,
             "-e",
             &env_var,
-            &claude_path,
-            "--resume",
-            session_id,
+            "bash",
+            "-c",
+            &wrapper,
         ])
         .status()
         .map_err(|e| format!("Failed to create tmux session: {e}"))?;
@@ -108,7 +102,6 @@ pub fn resume_session(session_id: &str, name: Option<&str>) -> Result<String, St
         return Err("tmux new-session failed".to_string());
     }
 
-    set_resume_on_exit_hook(&session_name);
     Ok(session_name)
 }
 
@@ -124,6 +117,20 @@ pub fn default_new_session_info() -> (String, String) {
         .unwrap_or_else(|| "claude".to_string());
 
     (name, cwd)
+}
+
+fn unique_session_name(base_name: &str) -> String {
+    if !session_exists(base_name) {
+        return base_name.to_string();
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("{base_name}-{n}");
+        if !session_exists(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 fn session_exists(name: &str) -> bool {
@@ -144,18 +151,3 @@ fn which_claude() -> Option<String> {
 fn sanitize_session_name(name: &str) -> String {
     name.replace('.', "-").replace(':', "-")
 }
-
-/// When the pane (claude process) exits, read the session-id from
-/// ~/.claude/sessions/<PID>.json and display "recon --resume <id>" in the
-/// tmux status bar of whichever session the user lands on next.
-fn set_resume_on_exit_hook(session_name: &str) {
-    // #{pane_pid} is expanded by tmux when the hook fires.
-    let hook_cmd = "run-shell '\
-        SID=$(jq -r .sessionId ~/.claude/sessions/#{pane_pid}.json 2>/dev/null); \
-        [ -n \"$SID\" ] && tmux display-message -d 0 \"recon --resume $SID\"\
-    '";
-    let _ = Command::new("tmux")
-        .args(["set-hook", "-t", session_name, "pane-exited", hook_cmd])
-        .status();
-}
-

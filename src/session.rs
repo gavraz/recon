@@ -814,9 +814,29 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
 
         if is_claude {
             results.push((pid, session_name.to_string(), pane_path.to_string()));
+        } else if command == "bash" || command == "sh" || command == "zsh" {
+            // The pane may be running a wrapper script with claude as a child.
+            // Check if any child process has a session file.
+            if let Some(claude_pid) = find_claude_child_pid(pid) {
+                results.push((claude_pid, session_name.to_string(), pane_path.to_string()));
+            }
         }
     }
 
     results
+}
+
+/// Check if a shell process has a claude child by looking for a child PID
+/// that has a corresponding ~/.claude/sessions/{PID}.json file.
+fn find_claude_child_pid(parent_pid: i32) -> Option<i32> {
+    let sessions_dir = dirs::home_dir()?.join(".claude").join("sessions");
+    let output = std::process::Command::new("pgrep")
+        .args(["-P", &parent_pid.to_string()])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<i32>().ok())
+        .find(|pid| sessions_dir.join(format!("{pid}.json")).exists())
 }
 
