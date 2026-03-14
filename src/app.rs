@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::history::ResumeHistory;
 use crate::session::{self, Session};
 use crate::tmux;
 
@@ -34,15 +33,6 @@ impl App {
             .into_iter()
             .filter(|s| s.tmux_session.is_some())
             .collect();
-
-        // Detect sessions that disappeared (were alive, now gone) and log to history.
-        let new_ids: std::collections::HashSet<&str> =
-            sessions.iter().map(|s| s.session_id.as_str()).collect();
-        for (id, prev) in &self.prev_sessions {
-            if !new_ids.contains(id.as_str()) && prev.total_input_tokens > 0 {
-                ResumeHistory::append(prev);
-            }
-        }
 
         self.prev_sessions = sessions
             .iter()

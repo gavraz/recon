@@ -651,6 +651,15 @@ fn find_jsonl_by_session_id(session_id: &str) -> Option<PathBuf> {
 
 /// Find the cwd used by an existing session (by scanning its JSONL for a cwd entry).
 /// Used by the resume command to start the tmux session in the right directory.
+/// Return session-id → tmux info for all currently live claude sessions.
+/// Used by the resume picker to filter out still-running sessions.
+pub fn build_live_session_map_public() -> HashMap<String, String> {
+    build_live_session_map()
+        .into_iter()
+        .map(|(id, info)| (id, info.tmux_session))
+        .collect()
+}
+
 pub fn find_session_cwd(session_id: &str) -> Option<String> {
     let projects_dir = dirs::home_dir()?.join(".claude").join("projects");
     for entry in fs::read_dir(&projects_dir).ok()?.flatten() {
