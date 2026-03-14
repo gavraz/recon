@@ -77,10 +77,12 @@ Requires tmux and [Claude Code](https://claude.ai/claude-code).
 ## Usage
 
 ```bash
-recon              # TUI dashboard
-recon --json       # JSON output (for scripting)
-recon launch       # Create a new claude session in the current directory
-recon new          # Interactive new session form
+recon                                  # TUI dashboard
+recon --json                           # JSON output (for scripting)
+recon launch                           # Create a new claude session in the current directory
+recon new                              # Interactive new session form
+recon --resume <session-id>            # Resume a claude session in a new tmux session
+recon --resume <session-id> --name foo # Resume with a custom tmux session name
 ```
 
 ### Keybindings
