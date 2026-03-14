@@ -174,7 +174,7 @@ pub fn run_resume_picker() -> io::Result<Option<(String, String)>> {
                         let window = e.model.as_deref()
                             .map(model::context_window)
                             .unwrap_or(200_000);
-                        let tokens = format!("{}k / {}k", e.tokens / 1000, window / 1000);
+                        let tokens = format!("{}k / {}", e.tokens / 1000, crate::session::format_window(window));
                         let exited = format_relative(&e.last_active);
 
                         let row = Row::new(vec![

@@ -53,7 +53,7 @@ impl Session {
             .as_deref()
             .map(model::context_window)
             .unwrap_or(200_000);
-        format!("{}k / {}k", used / 1000, window / 1000)
+        format!("{}k / {}", used / 1000, format_window(window))
     }
 
     pub fn token_ratio(&self) -> f64 {
@@ -74,6 +74,14 @@ impl Session {
             Some(m) => model::format_with_effort(m, effort),
             None => "—".to_string(),
         }
+    }
+}
+
+pub fn format_window(tokens: u64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{}M", tokens / 1_000_000)
+    } else {
+        format!("{}k", tokens / 1000)
     }
 }
 
