@@ -144,8 +144,8 @@ fn find_resumable_sessions() -> Vec<ResumeEntry> {
                         let cwd = decode_project_path(&dir_entry.path());
 
                         entries.push(ResumeEntry {
-                            // No tmux name available from JSONL — use short session ID
-                            name: session_id[..8.min(session_id.len())].to_string(),
+                            // No tmux name available from JSONL — show full session ID
+                            name: session_id.clone(),
                             session_id,
                             cwd,
                             model,
