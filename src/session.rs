@@ -31,6 +31,7 @@ impl SessionStatus {
 pub struct Session {
     pub session_id: String,
     pub project_name: String,
+    pub branch: Option<String>,
     pub cwd: String,
     pub tmux_session: Option<String>,
     pub model: Option<String>,
@@ -156,7 +157,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             let cwd = info
                 .cwd
                 .unwrap_or_else(|| decode_project_path(&project_dir));
-            let project_name = git_project_name(&cwd);
+            let (project_name, branch) = git_project_info(&cwd);
 
             let status = determine_status(
                 &path,
@@ -170,6 +171,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             sessions.push(Session {
                 session_id,
                 project_name,
+                branch,
                 cwd,
                 tmux_session: Some(live.tmux_session.clone()),
                 model: info.model,
@@ -195,11 +197,12 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
         if known_tmux.contains(&live.tmux_session) {
             continue;
         }
-        let project_name = git_project_name(&live.pane_cwd);
+        let (project_name, branch) = git_project_info(&live.pane_cwd);
 
         sessions.push(Session {
             session_id: format!("tmux-{}", live.tmux_session),
             project_name,
+            branch,
             cwd: live.pane_cwd.clone(),
             tmux_session: Some(live.tmux_session.clone()),
             model: None,
@@ -279,15 +282,8 @@ struct ParsedInfo {
 use std::sync::Mutex;
 
 /// Get the git project name and branch for a directory.
-/// Returns "repo (branch)" for git repos, or the directory basename otherwise.
-/// Branch is not cached since it can change; repo root is cached.
-fn git_project_name(cwd: &str) -> String {
-    let repo_name = git_repo_name(cwd);
-    let branch = git_branch(cwd);
-    match branch {
-        Some(b) => format!("{repo_name} ({b})"),
-        None => repo_name,
-    }
+fn git_project_info(cwd: &str) -> (String, Option<String>) {
+    (git_repo_name(cwd), git_branch(cwd))
 }
 
 static GIT_REPO_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);

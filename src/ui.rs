@@ -24,7 +24,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(vec![
         Cell::from(" # "),
         Cell::from("Session"),
-        Cell::from("Project"),
+        Cell::from("Git(Project::Branch)"),
         Cell::from("Directory"),
         Cell::from("Status"),
         Cell::from("Model"),
@@ -49,13 +49,12 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
                 .as_deref()
                 .unwrap_or("—");
 
-            let status_style = match session.status {
-                SessionStatus::New => Style::default().fg(Color::Blue),
-                SessionStatus::Working => Style::default().fg(Color::Green),
-                SessionStatus::Idle => Style::default().fg(Color::DarkGray),
-                SessionStatus::Input => Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
+            // Status: colored dot + label
+            let (status_dot, status_label, status_color) = match session.status {
+                SessionStatus::New => ("●", "New", Color::Blue),
+                SessionStatus::Working => ("●", "Working", Color::Green),
+                SessionStatus::Idle => ("●", "Idle", Color::DarkGray),
+                SessionStatus::Input => ("●", "Input", Color::Yellow),
             };
 
             let token_ratio = session.token_ratio();
@@ -75,18 +74,43 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
 
             let cwd_display = shorten_home(&session.cwd);
 
+            // Project: repo::branch
+            let project_cell = match &session.branch {
+                Some(b) => Cell::from(Line::from(vec![
+                    Span::raw(&session.project_name),
+                    Span::styled("::", Style::default().fg(Color::DarkGray)),
+                    Span::styled(b, Style::default().fg(Color::Green)),
+                ])),
+                None => Cell::from(session.project_name.clone()),
+            };
+
+            // Status: colored dot + label
+            let status_cell = Cell::from(Line::from(vec![
+                Span::styled(status_dot, Style::default().fg(status_color)),
+                Span::styled(
+                    format!(" {status_label}"),
+                    Style::default().fg(status_color),
+                ),
+            ]));
+
+            // Directory: dimmed
+            let dir_cell =
+                Cell::from(cwd_display).style(Style::default().fg(Color::DarkGray));
+
             let row = Row::new(vec![
                 Cell::from(num),
                 Cell::from(tmux_name.to_string()),
-                Cell::from(session.project_name.clone()),
-                Cell::from(cwd_display),
-                Cell::from(session.status.label()).style(status_style),
+                project_cell,
+                dir_cell,
+                status_cell,
                 Cell::from(session.model_display(&app.effort_level)),
                 Cell::from(session.token_display()).style(token_style),
                 Cell::from(activity),
             ]);
 
-            if i == app.selected {
+            if session.status == SessionStatus::Input {
+                row.style(Style::default().bg(Color::Rgb(50, 40, 0)))
+            } else if i == app.selected {
                 row.style(Style::default().bg(Color::DarkGray))
             } else {
                 row

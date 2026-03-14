@@ -81,6 +81,7 @@ impl App {
                     "index": i + 1,
                     "session_id": s.session_id,
                     "project_name": s.project_name,
+                    "branch": s.branch,
                     "cwd": s.cwd,
                     "tmux_session": s.tmux_session,
                     "model": s.model,
