@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Padding, Paragraph},
 };
@@ -355,6 +355,18 @@ pub fn resolve_zoom(app: &mut App) {
             app.view_zoomed_room = Some(room.name.clone());
         }
     }
+
+    // Clamp agent selection within zoomed room bounds
+    if let Some(ref zoomed_name) = app.view_zoomed_room {
+        if let Some(room) = rooms.iter().find(|r| &r.name == zoomed_name) {
+            if !room.session_indices.is_empty() {
+                app.view_selected_agent =
+                    app.view_selected_agent.min(room.session_indices.len() - 1);
+            } else {
+                app.view_selected_agent = 0;
+            }
+        }
+    }
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
@@ -375,7 +387,7 @@ fn render_rooms(frame: &mut Frame, app: &App, area: Rect) {
 
     if let Some(ref zoomed_name) = app.view_zoomed_room {
         if let Some(room) = rooms.iter().find(|r| &r.name == zoomed_name) {
-            render_room(frame, app, room, area, None);
+            render_room(frame, app, room, area, None, Some(app.view_selected_agent));
             return;
         }
     }
@@ -399,7 +411,7 @@ fn render_rooms(frame: &mut Frame, app: &App, area: Rect) {
 
     for (i, cell) in cells.iter().enumerate() {
         if let Some(room) = page_rooms.get(i) {
-            render_room(frame, app, room, *cell, Some(i + 1));
+            render_room(frame, app, room, *cell, Some(i + 1), None);
         } else {
             let block = Block::default()
                 .borders(Borders::ALL)
@@ -409,7 +421,7 @@ fn render_rooms(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_room(frame: &mut Frame, app: &App, room: &Room, area: Rect, slot_num: Option<usize>) {
+fn render_room(frame: &mut Frame, app: &App, room: &Room, area: Rect, slot_num: Option<usize>, selected_agent: Option<usize>) {
     let border_color = if room.has_input {
         if app.tick % 2 == 0 { Color::Yellow } else { Color::White }
     } else {
@@ -471,12 +483,14 @@ fn render_room(frame: &mut Frame, app: &App, room: &Room, area: Rect, slot_num: 
             if col_idx >= h_chunks.len() {
                 break;
             }
-            render_character(frame, &app.sessions[session_idx], h_chunks[col_idx], app.tick);
+            let flat_idx = row_idx * chars_per_row + col_idx;
+            let is_selected = selected_agent == Some(flat_idx);
+            render_character(frame, &app.sessions[session_idx], h_chunks[col_idx], app.tick, is_selected);
         }
     }
 }
 
-fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64) {
+fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64, is_selected: bool) {
     if area.height < 3 || area.width < 4 {
         return;
     }
@@ -492,6 +506,13 @@ fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64)
         status_color(&session.status)
     };
 
+    // Selection highlight background
+    if is_selected {
+        let bg = Block::default()
+            .style(Style::default().bg(Color::Rgb(40, 40, 60)));
+        frame.render_widget(bg, area);
+    }
+
     let mut lines: Vec<Line> = Vec::new();
 
     // Pixel art sprite (5 terminal lines)
@@ -500,9 +521,14 @@ fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64)
 
     // Session name
     let name = session.tmux_session.as_deref().unwrap_or("???");
+    let name_style = if is_selected {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    };
     lines.push(Line::from(Span::styled(
         truncate_str(name, area.width as usize),
-        Style::default().fg(Color::White),
+        name_style,
     )));
 
     // Git branch
@@ -552,13 +578,21 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans = vec![];
 
     if app.view_zoomed_room.is_some() {
+        spans.push(Span::styled("h/l", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(" select  "));
+        spans.push(Span::styled("Enter", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(" switch  "));
+        spans.push(Span::styled("x", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(" kill  "));
+        spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(" new  "));
         spans.push(Span::styled("Esc", Style::default().fg(Color::Cyan)));
         spans.push(Span::raw(" back  "));
     } else {
         spans.push(Span::styled("1-4", Style::default().fg(Color::Cyan)));
         spans.push(Span::raw(" zoom  "));
         if total_pages > 1 {
-            spans.push(Span::styled("h/l", Style::default().fg(Color::Cyan)));
+            spans.push(Span::styled("j/k", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(format!(" page ({}/{})  ", page + 1, total_pages)));
         }
     }

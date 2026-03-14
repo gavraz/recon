@@ -226,50 +226,56 @@ The SSE endpoint sends the full session list as JSON every 2 seconds:
 }
 ```
 
-## Interaction (Future Phases)
+## Interaction
 
-### Phase 3: Click-to-Switch
+### Already Implemented
 
-Clicking a character should navigate you to that agent's tmux session. Options:
+- **Room zoom**: `1-4` zooms into a room, `Esc` zooms back out
+- **Page navigation**: `h/l` (or arrow keys) to page through rooms (4 per page)
+- **Mode toggle**: `v` switches between table and view mode
+- **Refresh**: `r` forces a refresh
 
-1. **If user is in tmux**: `tmux switch-client -t {session}` via a POST endpoint
-2. **New terminal tab**: open iTerm2/Terminal.app with `tmux attach -t {session}`
-3. **Custom URL scheme**: register `recon://switch/{session}` handler
+### Phase 3: Agent Selection and Switching
 
-The key insight: clicking should open the agent **in a different tab/window**, not replace the dashboard. The dashboard stays visible on the side monitor.
+When zoomed into a room, you should be able to select individual agents and interact with them — matching the table mode's capabilities.
 
-### Phase 3: Room Navigation
+**Agent cursor** (zoomed-in room only):
+- `j/k` or arrow keys to move selection between agents in the room
+- Visual highlight on the selected agent (border glow or underline)
+- Selected agent shows extra detail: model, full context bar, last activity
 
-- Click room to "zoom in" (shows agents larger, more detail)
-- Click outside to zoom back out
-- Keyboard nav: arrow keys between rooms, Enter to zoom
+**Switch to agent**:
+- `Enter` on a selected agent runs `tmux switch-client -t {session}` and exits recon (same as table mode)
+- This switches the current tmux client — the user returns to recon by switching back
+
+**Kill agent**:
+- `x` on a selected agent kills the tmux session (same as table mode, with confirmation)
+
+**Create session**:
+- `n` opens the new-session form (same as table mode)
 
 ## Implementation Phases
 
-### Phase 1: Static Dashboard
-- `recon view` subcommand with axum server
-- SSE endpoint pushing session data
-- Browser app with room layout (grid of boxes)
-- Static character sprites (different image per state)
-- Tmux session name labels
-- Room grouping by CWD basename
-- Auto-refresh every 2 seconds
+### Phase 1: Static Dashboard (done)
+- `recon view` subcommand (TUI, not browser — pivoted from original axum/Canvas plan)
+- Room layout: 2x2 grid with pagination (`h/l`), zoom (`1-4`), `Esc` to zoom out
+- Half-block pixel sprites per state (New=egg, Working=green, Idle=sleeping, Input=angry)
+- Session name, git branch, status label, context bar per agent
+- Room grouping by full CWD path (shown with `~` prefix)
+- Auto-refresh every 2 seconds, `v` toggles to table mode
 
-### Phase 2: Animations and Polish
-- Sprite sheet animations (frame-by-frame for each state)
-- Smooth transitions between states (e.g., waking up from sleep)
-- Hover cards with git/model/token details
-- Pulsing glow for input-needed agents
-- "Zzz" particle effect for sleeping
-- Sweat drops for high context usage
-- Desktop notification API for input-needed state
-- Context usage bar with color coding
+### Phase 2: Animations and Polish (done)
+- Tick-based animations: Working and Input sprites animate (3 frames each), Idle and New are static
+- Phase-offset per session ID so agents in the same room don't animate in sync
+- Input rooms: border pulses yellow/white, agent label pulses
+- Context bar with color coding (green/yellow/red)
+- Fatigue overlay concept (high context → visual change) — designed but not yet visible at low usage
 
-### Phase 3: Interaction
-- Click agent to switch to its tmux session (in new tab)
-- Click room to zoom in
-- Keyboard navigation between rooms/agents
-- Settings panel (notification preferences, room name overrides)
+### Phase 3: Interaction (next)
+- Agent cursor: `j/k` to select agents within a zoomed room
+- `Enter` to switch to selected agent's tmux session
+- `x` to kill selected agent
+- `n` to create a new session from view mode
 
 ## Design Principles
 

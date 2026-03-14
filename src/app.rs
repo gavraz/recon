@@ -21,6 +21,7 @@ pub struct App {
     pub view_page: usize,
     pub view_zoomed_room: Option<String>, // room name when zoomed in
     pub view_zoom_index: Option<usize>,  // pending zoom request from key press
+    pub view_selected_agent: usize,      // selected agent within zoomed room
     prev_sessions: HashMap<String, Session>,
 }
 
@@ -37,6 +38,7 @@ impl App {
             view_page: 0,
             view_zoomed_room: None,
             view_zoom_index: None,
+            view_selected_agent: 0,
             prev_sessions: HashMap::new(),
         }
     }
@@ -108,35 +110,113 @@ impl App {
     }
 
     fn handle_key_view(&mut self, key: KeyEvent) {
+        // Agent interaction keys (only when zoomed into a room)
+        if self.view_zoomed_room.is_some() {
+            match key.code {
+                KeyCode::Char('l') | KeyCode::Right => {
+                    self.view_selected_agent = self.view_selected_agent.saturating_add(1);
+                    return;
+                }
+                KeyCode::Char('h') | KeyCode::Left => {
+                    self.view_selected_agent = self.view_selected_agent.saturating_sub(1);
+                    return;
+                }
+                KeyCode::Enter => {
+                    if let Some(session) = self.selected_zoomed_session() {
+                        if let Some(name) = session.tmux_session.clone() {
+                            tmux::switch_to_session(&name);
+                            self.should_quit = true;
+                        }
+                    }
+                    return;
+                }
+                KeyCode::Char('x') => {
+                    if let Some(session) = self.selected_zoomed_session() {
+                        if let Some(name) = session.tmux_session.clone() {
+                            tmux::kill_session(&name);
+                            self.refresh();
+                        }
+                    }
+                    return;
+                }
+                KeyCode::Char('n') => {
+                    if let Some(cwd) = self.zoomed_room_cwd() {
+                        let default_name = std::path::Path::new(&cwd)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "claude".to_string());
+                        if let Ok(name) = tmux::create_session(&default_name, &cwd) {
+                            tmux::switch_to_session(&name);
+                            self.should_quit = true;
+                        }
+                    }
+                    return;
+                }
+                _ => {} // fall through to shared keys
+            }
+        }
+
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Esc => {
                 if self.view_zoomed_room.is_some() {
-                    self.view_zoomed_room = None; // zoom out
+                    self.view_zoomed_room = None;
+                    self.view_selected_agent = 0;
                 } else {
                     self.should_quit = true;
                 }
             }
             KeyCode::Char('v') => {
                 self.view_zoomed_room = None;
+                self.view_selected_agent = 0;
                 self.view_mode = ViewMode::Table;
             }
             KeyCode::Char('r') => self.refresh(),
-            KeyCode::Char('l') | KeyCode::Right => {
+            KeyCode::Char('j') | KeyCode::Down => {
                 self.view_page = self.view_page.saturating_add(1);
             }
-            KeyCode::Char('h') | KeyCode::Left => {
+            KeyCode::Char('k') | KeyCode::Up => {
                 self.view_page = self.view_page.saturating_sub(1);
             }
-            // 1-9 to zoom into room by index on current page
             KeyCode::Char(c @ '1'..='9') => {
                 let idx = (c as usize) - ('1' as usize);
-                // Room name will be resolved by view_ui via view_zoomed_room
-                // Store the index temporarily; view_ui will set the actual room name
                 self.view_zoom_index = Some(idx);
+                self.view_selected_agent = 0;
             }
             _ => {}
         }
+    }
+
+    fn zoomed_room_session_indices(&self) -> Vec<usize> {
+        let Some(ref room_name) = self.view_zoomed_room else {
+            return Vec::new();
+        };
+        self.sessions
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                let name = if s.cwd.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    shorten_home(&s.cwd)
+                };
+                &name == room_name
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn selected_zoomed_session(&self) -> Option<&Session> {
+        let indices = self.zoomed_room_session_indices();
+        if indices.is_empty() {
+            return None;
+        }
+        let clamped = self.view_selected_agent.min(indices.len() - 1);
+        self.sessions.get(indices[clamped])
+    }
+
+    fn zoomed_room_cwd(&self) -> Option<String> {
+        self.selected_zoomed_session().map(|s| s.cwd.clone())
     }
 
     pub fn to_json(&self) -> String {
@@ -172,6 +252,16 @@ impl App {
         }))
         .unwrap_or_else(|_| "{}".to_string())
     }
+}
+
+fn shorten_home(path: &str) -> String {
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy();
+        if let Some(rest) = path.strip_prefix(home_str.as_ref()) {
+            return format!("~{rest}");
+        }
+    }
+    path.to_string()
 }
 
 fn read_effort_level() -> Option<String> {
