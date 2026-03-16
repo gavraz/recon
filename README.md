@@ -154,19 +154,6 @@ bind X confirm-before -p "Kill session #S? (y/n)" kill-session
 
 This lets you pop open the dashboard from any tmux session, pick a session with `Enter`, and jump straight to it.
 
-## Features
-
-- **Live status** — polls every 2s, incremental JSONL parsing
-- **Tamagotchi view** — pixel-art creatures with animations, rooms, and context bars
-- **Git-aware** — shows repo name and branch per session
-- **Context tracking** — token usage shown as used/available (e.g. 45k/1M)
-- **Model display** — shows which Claude model and effort level
-- **Resume picker** — `recon resume` scans JSONL files for past sessions, resume any with `Enter`
-- **Multi-session** — handles multiple sessions in the same repo without conflicts
-- **Park / unpark** — `recon park` saves all sessions to disk, `recon unpark` restores them after a tmux restart
-- **JSON mode** — `recon json` for scripting and automation
-- **Claude Code skill** — ships a [skill file](.claude/skills/recon/SKILL.md) so Claude Code can discover and run recon commands
-
 ## License
 
 MIT
