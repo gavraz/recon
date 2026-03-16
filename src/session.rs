@@ -783,7 +783,7 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
             "list-panes",
             "-a",
             "-F",
-            "#{pane_pid}\t#{session_name}\t#{pane_current_command}\t#{pane_current_path}",
+            "#{pane_pid}|||#{session_name}|||#{pane_current_command}|||#{pane_current_path}",
         ])
         .output()
     {
@@ -798,7 +798,7 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
         .unwrap_or_default();
 
     for line in stdout.lines() {
-        let parts: Vec<&str> = line.splitn(4, '\t').collect();
+        let parts: Vec<&str> = line.splitn(4, "|||").collect();
         if parts.len() < 4 {
             continue;
         }
