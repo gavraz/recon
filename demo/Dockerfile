@@ -17,7 +17,7 @@ COPY demo/tapes /demo/tapes
 RUN useradd -m -u 10001 recon \
     && mkdir -p /home/recon/.claude/sessions /home/recon/.claude/projects \
     && chown -R recon:recon /demo /home/recon
-COPY tmux.conf /home/recon/.tmux.conf
+COPY --chown=recon:recon tmux.conf /home/recon/.tmux.conf
 
 RUN chmod +x /usr/local/bin/recon /demo/demo.sh
 
