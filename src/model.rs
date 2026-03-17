@@ -24,6 +24,20 @@ pub fn context_window(model_id: &str) -> u64 {
     }
 }
 
+/// Reverse lookup: display name (from /model output) → model ID.
+/// Returns None if the display name is not recognized.
+pub fn id_from_display_name(display: &str) -> Option<&'static str> {
+    match display {
+        "Opus 4.6" | "Opus 4.6 (1M context)" => Some("claude-opus-4-6"),
+        "Sonnet 4.6" => Some("claude-sonnet-4-6"),
+        "Sonnet 4.5" => Some("claude-sonnet-4-5-20250514"),
+        "Haiku 4.5" => Some("claude-haiku-4-5-20251001"),
+        "Opus 4" => Some("claude-opus-4-20250514"),
+        "Sonnet 4" => Some("claude-sonnet-4-20250514"),
+        _ => None,
+    }
+}
+
 /// Format model name with optional effort level.
 pub fn format_with_effort(model_id: &str, effort: &str) -> String {
     let name = display_name(model_id);

@@ -39,6 +39,7 @@ pub struct Session {
     pub total_output_tokens: u64,
     pub status: SessionStatus,
     pub pid: Option<i32>,
+    pub effort: Option<String>,
     pub last_activity: Option<String>,
     pub started_at: u64,
     pub jsonl_path: PathBuf,
@@ -69,9 +70,9 @@ impl Session {
         used as f64 / window as f64
     }
 
-    pub fn model_display(&self, effort: &str) -> String {
+    pub fn model_display(&self) -> String {
         match &self.model {
-            Some(m) => model::format_with_effort(m, effort),
+            Some(m) => model::format_with_effort(m, self.effort.as_deref().unwrap_or("")),
             None => "—".to_string(),
         }
     }
@@ -159,6 +160,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 prev.map(|s| s.total_input_tokens).unwrap_or(0),
                 prev.map(|s| s.total_output_tokens).unwrap_or(0),
                 prev.and_then(|s| s.model.clone()),
+                prev.and_then(|s| s.effort.clone()),
                 prev.and_then(|s| s.last_activity.clone()),
             );
 
@@ -183,6 +185,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 cwd,
                 tmux_session: Some(live.tmux_session.clone()),
                 model: info.model,
+                effort: info.effort,
                 total_input_tokens: info.input_tokens,
                 total_output_tokens: info.output_tokens,
                 status,
@@ -219,7 +222,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                     .elapsed()
                     .map_or(false, |age| age < Duration::from_secs(10));
                 if new > cur && is_active {
-                    let info = parse_jsonl(&newer, 0, 0, 0, None, None);
+                    let info = parse_jsonl(&newer, 0, 0, 0, None, None, None);
                     let new_sid = newer
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
@@ -229,6 +232,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                     session.total_input_tokens = info.input_tokens;
                     session.total_output_tokens = info.output_tokens;
                     session.model = info.model;
+                    session.effort = info.effort;
                     session.last_activity = info.last_activity;
                     session.last_file_size = info.file_size;
                     session.jsonl_path = newer;
@@ -312,6 +316,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 prev.map(|s| s.total_input_tokens).unwrap_or(0),
                 prev.map(|s| s.total_output_tokens).unwrap_or(0),
                 prev.and_then(|s| s.model.clone()),
+                prev.and_then(|s| s.effort.clone()),
                 prev.and_then(|s| s.last_activity.clone()),
             );
 
@@ -332,6 +337,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 cwd,
                 tmux_session: Some(live.tmux_session.clone()),
                 model: info.model,
+                effort: info.effort,
                 total_input_tokens: info.input_tokens,
                 total_output_tokens: info.output_tokens,
                 status,
@@ -351,6 +357,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 cwd: live.pane_cwd.clone(),
                 tmux_session: Some(live.tmux_session.clone()),
                 model: None,
+                effort: None,
                 total_input_tokens: 0,
                 total_output_tokens: 0,
                 status: SessionStatus::New,
@@ -419,6 +426,7 @@ struct ParsedInfo {
     input_tokens: u64,
     output_tokens: u64,
     model: Option<String>,
+    effort: Option<String>,
     cwd: Option<String>,
     last_activity: Option<String>,
     file_size: u64,
@@ -559,6 +567,7 @@ fn parse_jsonl(
     prev_input: u64,
     prev_output: u64,
     prev_model: Option<String>,
+    prev_effort: Option<String>,
     prev_activity: Option<String>,
 ) -> ParsedInfo {
     let file = match fs::File::open(path) {
@@ -568,6 +577,7 @@ fn parse_jsonl(
                 input_tokens: prev_input,
                 output_tokens: prev_output,
                 model: prev_model,
+                effort: prev_effort,
                 cwd: None,
                 last_activity: prev_activity,
                 file_size: 0,
@@ -582,6 +592,7 @@ fn parse_jsonl(
             input_tokens: prev_input,
             output_tokens: prev_output,
             model: prev_model,
+            effort: prev_effort,
             cwd: None,
             last_activity: prev_activity,
             file_size,
@@ -592,6 +603,7 @@ fn parse_jsonl(
     let mut total_input = prev_input;
     let mut total_output = prev_output;
     let mut model = prev_model;
+    let mut effort = prev_effort;
     let mut last_activity = prev_activity;
     let mut cwd = None;
 
@@ -601,6 +613,7 @@ fn parse_jsonl(
         total_input = 0;
         total_output = 0;
         model = None;
+        effort = None;
         last_activity = None;
     }
 
@@ -647,6 +660,50 @@ fn parse_jsonl(
                     cwd = entry.cwd;
                 }
             }
+            // Extract model + effort from /model command stdout recorded in JSONL:
+            //   "Set model to Opus 4.6 (1M context) (default) with max effort"
+            //   "Set model to Sonnet 4.6"
+            if trimmed.contains("<local-command-stdout>Set model to")
+                && !trimmed.contains("toolUseResult")
+                && !trimmed.contains("tool_result")
+            {
+                let stdout_pos = trimmed.find("<local-command-stdout>Set model to").unwrap();
+                let tag_end = stdout_pos + "<local-command-stdout>Set model to".len();
+                let raw_remainder = &trimmed[tag_end..];
+                // Truncate at closing tag
+                let raw_remainder = raw_remainder
+                    .find("</local-command-stdout>")
+                    .map_or(raw_remainder, |end| &raw_remainder[..end]);
+                let remainder = strip_ansi(raw_remainder);
+                let remainder = remainder.trim();
+
+                // Extract effort if present ("with <effort> effort")
+                let (model_part, new_effort) = if let Some(wp) = remainder.find("with ") {
+                    let after_with = &remainder[wp + 5..];
+                    let eff = after_with.find(" effort")
+                        .map(|end| after_with[..end].trim().to_string())
+                        .filter(|s| !s.is_empty());
+                    (&remainder[..wp], eff)
+                } else {
+                    (&remainder[..], None)
+                };
+                if let Some(e) = new_effort {
+                    effort = Some(e);
+                }
+
+                // Extract model: strip suffixes like "(1M context)" and "(default)"
+                let model_name = model_part
+                    .trim()
+                    .trim_end_matches("(default)")
+                    .trim()
+                    .trim_end_matches("(1M context)")
+                    .trim()
+                    .trim_end_matches("(200k context)")
+                    .trim();
+                if let Some(id) = model::id_from_display_name(model_name) {
+                    model = Some(id.to_string());
+                }
+            }
         }
     }
 
@@ -654,6 +711,7 @@ fn parse_jsonl(
         input_tokens: total_input,
         output_tokens: total_output,
         model,
+        effort,
         cwd,
         last_activity,
         file_size,
@@ -710,6 +768,37 @@ fn parse_resume_id_from_ps(pid: i32) -> Option<String> {
         .nth(1)
         .map(|s| s.to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Strip ANSI escape sequences from a string.
+/// Handles both raw ESC byte (\x1b[...m) and JSON-encoded form (\\u001b[...m).
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Raw ESC byte: skip until 'm'
+            for next in chars.by_ref() {
+                if next == 'm' { break; }
+            }
+        } else if c == '\\' && chars.peek() == Some(&'u') {
+            // Check for JSON-escaped \\u001b
+            let rest: String = chars.clone().take(5).collect();
+            if rest.starts_with("u001b") || rest.starts_with("u001B") {
+                // Consume "u001b" (5 chars)
+                for _ in 0..5 { chars.next(); }
+                // Skip the ANSI parameter sequence until 'm'
+                for next in chars.by_ref() {
+                    if next == 'm' { break; }
+                }
+            } else {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Encode a CWD path to a Claude project directory name.

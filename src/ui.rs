@@ -103,7 +103,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
                 project_cell,
                 dir_cell,
                 status_cell,
-                Cell::from(session.model_display(&app.effort_level)),
+                Cell::from(session.model_display()),
                 Cell::from(session.token_display()).style(token_style),
                 Cell::from(activity),
             ]);

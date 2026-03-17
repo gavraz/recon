@@ -14,7 +14,6 @@ pub enum ViewMode {
 pub struct App {
     pub sessions: Vec<Session>,
     pub selected: usize,
-    pub effort_level: String,
     pub should_quit: bool,
     pub view_mode: ViewMode,
     pub tick: u64,
@@ -27,11 +26,9 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let effort_level = read_effort_level().unwrap_or_else(|| "medium".to_string());
         App {
             sessions: Vec::new(),
             selected: 0,
-            effort_level,
             should_quit: false,
             view_mode: ViewMode::Table,
             tick: 0,
@@ -246,7 +243,7 @@ impl App {
                     "cwd": s.cwd,
                     "tmux_session": s.tmux_session,
                     "model": s.model,
-                    "model_display": s.model_display(&self.effort_level),
+                    "model_display": s.model_display(),
                     "total_input_tokens": s.total_input_tokens,
                     "total_output_tokens": s.total_output_tokens,
                     "context_display": s.token_display(),
@@ -261,7 +258,6 @@ impl App {
 
         serde_json::to_string_pretty(&serde_json::json!({
             "sessions": sessions,
-            "effort_level": self.effort_level,
         }))
         .unwrap_or_else(|_| "{}".to_string())
     }
@@ -277,10 +273,3 @@ fn shorten_home(path: &str) -> String {
     path.to_string()
 }
 
-fn read_effort_level() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let path = home.join(".claude").join("settings.json");
-    let content = std::fs::read_to_string(path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
-    v.get("effortLevel")?.as_str().map(|s| s.to_string())
-}
