@@ -300,12 +300,15 @@ struct LiveSessionInfo {
 ///
 /// Joins two sources:
 ///   1. tmux list-panes: PID → (tmux_session, pane_cwd) for panes running claude
-///   2. ~/.claude/sessions/{PID}.json: PID → (session_id, started_at)
+///   2. ~/.claude/sessions/{PID}.json: PID → (session_id, started_at)  [legacy]
+///   3. Fallback: match pane cwd → encoded project dir → most recent JSONL files
 fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
     let pid_session_map = read_pid_session_map();
     let tmux_panes = discover_claude_tmux_panes();
 
     let mut map = HashMap::new();
+    let mut unmatched_panes: Vec<(i32, String, String)> = Vec::new();
+
     for (pid, tmux_session, pane_cwd) in tmux_panes {
         if let Some(info) = pid_session_map.get(&pid) {
             map.insert(
@@ -318,20 +321,128 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
                 },
             );
         } else {
-            // Tmux pane running claude but no session file yet (just started).
-            // Use the tmux session name as a placeholder key.
-            map.insert(
-                format!("tmux-{tmux_session}"),
-                LiveSessionInfo {
-                    pid,
-                    tmux_session,
-                    pane_cwd,
-                    started_at: 0,
-                },
-            );
+            unmatched_panes.push((pid, tmux_session, pane_cwd));
         }
     }
+
+    // When session files don't exist (current CC versions), match panes to
+    // JSONL files by encoding the pane cwd to the project directory name.
+    if !unmatched_panes.is_empty() {
+        if let Some(projects_dir) = dirs::home_dir().map(|h| h.join(".claude").join("projects")) {
+            let claimed: std::collections::HashSet<String> = map.keys().cloned().collect();
+            match_panes_by_project_dir(&mut map, unmatched_panes, &projects_dir, &claimed);
+        }
+    }
+
     map
+}
+
+/// Encode a filesystem path to the project directory name format used by Claude Code.
+/// `/Users/me/repos/my-app` → `-Users-me-repos-my-app`
+fn encode_project_path(path: &str) -> String {
+    path.replace('/', "-").replace('@', "-")
+}
+
+/// Find recently-modified JSONL files in a project dir, sorted by recency.
+/// Returns (session_id, modification_epoch) pairs.
+fn find_active_jsonl_sessions(
+    project_dir: &Path,
+    cutoff: SystemTime,
+    already_claimed: &std::collections::HashSet<String>,
+) -> Vec<(String, u64)> {
+    let entries = match fs::read_dir(project_dir) {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+
+    let mut results = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+            continue;
+        }
+
+        let modified = path
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        if modified < cutoff {
+            continue;
+        }
+
+        let session_id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if already_claimed.contains(&session_id) {
+            continue;
+        }
+
+        let modified_epoch = modified
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        results.push((session_id, modified_epoch));
+    }
+
+    results.sort_by(|a, b| b.1.cmp(&a.1));
+    results
+}
+
+/// Match unmatched tmux panes to JSONL sessions by project directory.
+fn match_panes_by_project_dir(
+    map: &mut HashMap<String, LiveSessionInfo>,
+    unmatched_panes: Vec<(i32, String, String)>,
+    projects_dir: &Path,
+    already_claimed: &std::collections::HashSet<String>,
+) {
+    // Group panes by encoded project dir
+    let mut panes_by_project: HashMap<String, Vec<(i32, String, String)>> = HashMap::new();
+    for (pid, tmux_session, pane_cwd) in unmatched_panes {
+        let encoded = encode_project_path(&pane_cwd);
+        panes_by_project
+            .entry(encoded)
+            .or_default()
+            .push((pid, tmux_session, pane_cwd));
+    }
+
+    let cutoff = SystemTime::now() - Duration::from_secs(24 * 3600);
+    let mut claimed = already_claimed.clone();
+
+    for (encoded, panes) in panes_by_project {
+        let project_dir = projects_dir.join(&encoded);
+        let available = find_active_jsonl_sessions(&project_dir, cutoff, &claimed);
+
+        for (i, (pid, tmux_session, pane_cwd)) in panes.into_iter().enumerate() {
+            if let Some((session_id, _)) = available.get(i) {
+                claimed.insert(session_id.clone());
+                map.insert(
+                    session_id.clone(),
+                    LiveSessionInfo {
+                        pid,
+                        tmux_session,
+                        pane_cwd,
+                        started_at: 0,
+                    },
+                );
+            } else {
+                // No JSONL found — brand new or unmatched session
+                map.insert(
+                    format!("tmux-{pid}"),
+                    LiveSessionInfo {
+                        pid,
+                        tmux_session,
+                        pane_cwd,
+                        started_at: 0,
+                    },
+                );
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -844,11 +955,20 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
         if is_claude {
             // pane_pid is the initial process — it may be claude itself (recon launch)
             // or a shell with claude as the foreground child (manual `claude` in a terminal).
-            // Try the pane PID first, fall back to searching children.
+            // Try session file first, then child search, then fall back to pane PID itself
+            // (the pane's foreground command IS claude when command is a version string).
             let claude_pid = if sessions_dir.join(format!("{pid}.json")).exists() {
                 Some(pid)
             } else {
-                find_claude_child_pid(pid)
+                find_claude_child_pid(pid).or_else(|| {
+                    // pane_current_command shows claude (version string) — the pane PID's
+                    // shell has claude as foreground process. Use the actual claude PID.
+                    if is_claude_process(pid) {
+                        Some(pid)
+                    } else {
+                        None
+                    }
+                })
             };
             if let Some(cpid) = claude_pid {
                 results.push((cpid, session_name.to_string(), pane_path.to_string()));
@@ -863,17 +983,54 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
     results
 }
 
-/// Check if a shell process has a claude child by looking for a child PID
-/// that has a corresponding ~/.claude/sessions/{PID}.json file.
+/// Find a claude child process under a parent PID.
+/// Uses `ps` instead of `pgrep` because macOS pgrep is unreliable for some processes.
 fn find_claude_child_pid(parent_pid: i32) -> Option<i32> {
-    let sessions_dir = dirs::home_dir()?.join(".claude").join("sessions");
-    let output = std::process::Command::new("pgrep")
-        .args(["-P", &parent_pid.to_string()])
+    let sessions_dir = dirs::home_dir()
+        .map(|h| h.join(".claude").join("sessions"))
+        .unwrap_or_default();
+
+    let children = child_pids(parent_pid);
+
+    // Legacy: session file exists
+    if let Some(&pid) = children.iter().find(|&&pid| sessions_dir.join(format!("{pid}.json")).exists()) {
+        return Some(pid);
+    }
+
+    // Current CC: find child by process name
+    children.iter().copied().find(|&pid| is_claude_process(pid))
+}
+
+/// Get direct child PIDs using `ps` (more reliable than `pgrep -P` on macOS).
+fn child_pids(parent_pid: i32) -> Vec<i32> {
+    let output = match std::process::Command::new("ps")
+        .args(["-eo", "pid,ppid"])
         .output()
-        .ok()?;
+    {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+    let ppid_str = parent_pid.to_string();
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter_map(|l| l.trim().parse::<i32>().ok())
-        .find(|pid| sessions_dir.join(format!("{pid}.json")).exists())
+        .filter_map(|line| {
+            let mut cols = line.split_whitespace();
+            let pid: i32 = cols.next()?.parse().ok()?;
+            let ppid = cols.next()?;
+            if ppid == ppid_str { Some(pid) } else { None }
+        })
+        .collect()
+}
+
+fn is_claude_process(pid: i32) -> bool {
+    let output = match std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    let comm = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    comm == "claude"
 }
 
