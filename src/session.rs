@@ -1180,3 +1180,42 @@ fn find_claude_child_pid(parent_pid: i32) -> Option<i32> {
         .find(|pid| sessions_dir.join(format!("{pid}.json")).exists())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_safe_cwd_rejects_relative_paths() {
+        assert!(!is_safe_cwd("relative/path"));
+        assert!(!is_safe_cwd("./here"));
+        assert!(!is_safe_cwd("../parent"));
+    }
+
+    #[test]
+    fn is_safe_cwd_rejects_nonexistent_absolute_paths() {
+        assert!(!is_safe_cwd("/nonexistent/path/that/does/not/exist/xyz123"));
+    }
+
+    #[test]
+    fn is_safe_cwd_accepts_real_directories() {
+        assert!(is_safe_cwd("/tmp"));
+        // Home directory should always exist
+        if let Some(home) = dirs::home_dir() {
+            assert!(is_safe_cwd(&home.to_string_lossy()));
+        }
+    }
+
+    #[test]
+    fn fetch_git_repo_name_handles_nonexistent_cwd() {
+        // Should return the basename, not panic or invoke git
+        let result = fetch_git_repo_name("/nonexistent/path/my-project");
+        assert_eq!(result, "my-project");
+    }
+
+    #[test]
+    fn fetch_git_branch_handles_nonexistent_cwd() {
+        let result = fetch_git_branch("/nonexistent/path/my-project");
+        assert!(result.is_none());
+    }
+}
+

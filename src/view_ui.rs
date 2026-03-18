@@ -654,6 +654,7 @@ mod tests {
             cwd: cwd.to_string(),
             tmux_session: None,
             model: None,
+            effort: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
             status,

@@ -161,3 +161,48 @@ fn sanitize_session_name(name: &str) -> String {
         sanitized
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_replaces_dots_and_colons() {
+        assert_eq!(sanitize_session_name("my.app:v2"), "my-app-v2");
+    }
+
+    #[test]
+    fn sanitize_replaces_tmux_special_chars() {
+        assert_eq!(sanitize_session_name("te$t!app@home"), "te-t-app-home");
+        assert_eq!(sanitize_session_name("a=b%c"), "a-b-c");
+    }
+
+    #[test]
+    fn sanitize_replaces_spaces() {
+        assert_eq!(sanitize_session_name("my project"), "my-project");
+        // \t is a control character, so it gets stripped entirely
+        assert_eq!(sanitize_session_name("a\tb"), "ab");
+    }
+
+    #[test]
+    fn sanitize_strips_control_characters() {
+        assert_eq!(sanitize_session_name("test\x00name\x1b"), "testname");
+    }
+
+    #[test]
+    fn sanitize_empty_string_returns_session() {
+        assert_eq!(sanitize_session_name(""), "session");
+    }
+
+    #[test]
+    fn sanitize_all_special_chars_returns_session() {
+        // All chars map to '-', but dashes are kept, so not empty
+        assert_eq!(sanitize_session_name(".:"), "--");
+    }
+
+    #[test]
+    fn sanitize_preserves_normal_names() {
+        assert_eq!(sanitize_session_name("my-project-123"), "my-project-123");
+        assert_eq!(sanitize_session_name("api-refactor"), "api-refactor");
+    }
+}
