@@ -85,8 +85,8 @@ fn main() -> io::Result<()> {
             let mut app = App::new();
             app.refresh();
             if let Some(session) = app.sessions.iter().find(|s| s.status == session::SessionStatus::Input) {
-                if let Some(name) = &session.tmux_session {
-                    tmux::switch_to_session(name);
+                if let Some(target) = &session.pane_target {
+                    tmux::switch_to_session(target);
                 }
             }
         }

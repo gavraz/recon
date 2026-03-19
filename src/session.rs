@@ -34,6 +34,8 @@ pub struct Session {
     pub branch: Option<String>,
     pub cwd: String,
     pub tmux_session: Option<String>,
+    /// Full pane target (e.g. "W:1.0") for status detection and switching.
+    pub pane_target: Option<String>,
     pub model: Option<String>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
@@ -183,7 +185,8 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 project_name,
                 branch,
                 cwd,
-                tmux_session: Some(live.pane_target.clone()),
+                tmux_session: Some(live.tmux_session.clone()),
+                pane_target: Some(live.pane_target.clone()),
                 model: info.model,
                 effort: info.effort,
                 total_input_tokens: info.input_tokens,
@@ -304,7 +307,8 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 project_name,
                 branch,
                 cwd,
-                tmux_session: Some(live.pane_target.clone()),
+                tmux_session: Some(live.tmux_session.clone()),
+                pane_target: Some(live.pane_target.clone()),
                 model: info.model,
                 effort: info.effort,
                 total_input_tokens: info.input_tokens,
@@ -324,7 +328,8 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 project_name,
                 branch,
                 cwd: live.pane_cwd.clone(),
-                tmux_session: Some(live.pane_target.clone()),
+                tmux_session: Some(live.tmux_session.clone()),
+                pane_target: Some(live.pane_target.clone()),
                 model: None,
                 effort: None,
                 total_input_tokens: 0,
@@ -378,8 +383,9 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
             );
         } else {
             // Tmux pane running claude but no session file yet (just started).
-            // Use the tmux session name as a placeholder key.
-            let placeholder = format!("tmux-{tmux_session}");
+            // Use pane target as placeholder key to avoid collisions when multiple
+            // fresh panes exist in the same tmux session.
+            let placeholder = format!("tmux-{pane_target}");
             map.insert(
                 placeholder,
                 LiveSessionInfo {
@@ -905,8 +911,6 @@ fn find_jsonl_by_session_id(session_id: &str) -> Option<PathBuf> {
     None
 }
 
-/// Find the cwd used by an existing session (by scanning its JSONL for a cwd entry).
-/// Used by the resume command to start the tmux session in the right directory.
 /// Return session-id → pane target for all currently live claude sessions.
 /// Used by the resume picker to filter out still-running sessions.
 pub fn build_live_session_map_public() -> HashMap<String, String> {
@@ -1116,38 +1120,24 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String, String)> {
             Err(_) => continue,
         };
         let session_name = parts[1];
-        let command = parts[2];
         let pane_path = parts[3];
         let window_idx = parts[4];
         let pane_idx = parts[5];
         // Full pane target for tmux commands (addresses exact pane)
         let pane_target = format!("{session_name}:{window_idx}.{pane_idx}");
 
-        // Claude shows up as a version number (e.g. "2.1.76") or "claude" or "node"
-        let is_claude = command
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_digit())
-            .unwrap_or(false)
-            || command == "claude"
-            || command == "node";
+        // Check if this pane PID itself is claude (has a session file)
+        let claude_pid = if sessions_dir.join(format!("{pid}.json")).exists() {
+            Some(pid)
+        } else {
+            // Check children - covers shells (bash/zsh/fish/etc), version-number
+            // commands, and any other parent process. The session file check
+            // prevents false positives so we don't need to filter by command name.
+            find_claude_child_pid(pid, &sessions_dir, &child_map)
+        };
 
-        if is_claude {
-            // pane_pid is the initial process - it may be claude itself (recon launch)
-            // or a shell with claude as the foreground child (manual `claude` in a terminal).
-            // Try the pane PID first, fall back to searching children.
-            let claude_pid = if sessions_dir.join(format!("{pid}.json")).exists() {
-                Some(pid)
-            } else {
-                find_claude_child_pid(pid, &sessions_dir, &child_map)
-            };
-            if let Some(cpid) = claude_pid {
-                results.push((cpid, session_name.to_string(), pane_target, pane_path.to_string()));
-            }
-        } else if command == "bash" || command == "sh" || command == "zsh" || command == "fish" {
-            if let Some(claude_pid) = find_claude_child_pid(pid, &sessions_dir, &child_map) {
-                results.push((claude_pid, session_name.to_string(), pane_target, pane_path.to_string()));
-            }
+        if let Some(cpid) = claude_pid {
+            results.push((cpid, session_name.to_string(), pane_target, pane_path.to_string()));
         }
     }
 
