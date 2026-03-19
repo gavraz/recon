@@ -13,18 +13,21 @@ S_TWIN="e2e-${RID}-twin"
 S_RESUME_ORIG="e2e-${RID}-res-orig"
 S_RESUME_NEW="e2e-${RID}-res-new"
 S_RESET="e2e-${RID}-reset"
+S_WORKING="e2e-${RID}-working"
 TMPDIR_NEW="/tmp/recon-e2e-${RID}"
 TMPDIR_INPUT="/tmp/recon-e2e-${RID}-input"
 TMPDIR_RESUME="/tmp/recon-e2e-${RID}-resume"
 TMPDIR_RESET="/tmp/recon-e2e-${RID}-reset"
+TMPDIR_WORKING="/tmp/recon-e2e-${RID}-working"
 TMPFILE="/tmp/recon-e2e-${RID}-testfile.txt"
+FIXTURES="$(cd "$(dirname "$0")" && pwd)/fixtures"
 
 CLAUDE_MODEL="${CLAUDE_MODEL:-haiku}"
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-low}"
 CLAUDE_FLAGS="--model $CLAUDE_MODEL --effort $CLAUDE_EFFORT"
 
 # --- Test selection ---
-ALL_TESTS=(new_state working_state idle_state token_stability sort_order input_state resume_tokens resume_idempotency reset_activity)
+ALL_TESTS=(new_state working_state idle_state token_stability sort_order input_state resume_tokens resume_idempotency reset_activity working_sonnet)
 RUN_TESTS=("$@")
 
 should_run() {
@@ -56,7 +59,7 @@ cleanup() {
     tmux list-sessions -F '#{session_name}' 2>/dev/null \
         | grep "^e2e-${RID}-" \
         | while read -r s; do tmux kill-session -t "$s" 2>/dev/null || true; done
-    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPDIR_RESET" "$TMPFILE"
+    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPDIR_RESET" "$TMPDIR_WORKING" "$TMPFILE"
 }
 trap cleanup EXIT
 
@@ -379,6 +382,26 @@ if should_run "reset_activity"; then
         "$RECON" json 2>/dev/null | jq -r --arg n "$S_RESET" \
             '.sessions[] | select(.tmux_session == $n)' | sed 's/^/    /'
         report fail "Reset: expected activity to advance (before=$ACTIVITY_BEFORE, after=$ACTIVITY_AFTER)"
+    fi
+fi
+
+# --- Test 10: Working state with Sonnet reading large files ---
+if should_run "working_sonnet"; then
+    mkdir -p "$TMPDIR_WORKING"
+    # Copy fixture files into the session's working directory
+    cp "$FIXTURES"/*.txt "$TMPDIR_WORKING/"
+
+    tmux new-session -d -s "$S_WORKING" -c "$TMPDIR_WORKING" \
+        "$(which claude) --model sonnet --effort low"
+    wait_for_state "$S_WORKING" "New" 15 >/dev/null 2>&1 || true
+
+    sleep 3
+    send_to_session "$S_WORKING" "read all .txt files in this directory and write a combined summary to summary.txt"
+
+    if wait_for_state "$S_WORKING" "Working" 30; then
+        report pass "Working state detected for $S_WORKING (sonnet reading files)"
+    else
+        report fail "Working state detected for $S_WORKING (sonnet reading files)"
     fi
 fi
 

@@ -966,15 +966,13 @@ fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, tmux_se
     }
 }
 
-/// Determine status by inspecting the Claude Code TUI status bar.
+/// Determine status by inspecting the Claude Code TUI pane content.
 ///
-/// The last non-empty line in the pane is typically the status bar:
-///   "esc to interrupt"  → agent is streaming or running a tool
-///   "Esc to cancel"     → permission prompt waiting for user input
-///
-/// Some permission prompts use a selection menu instead of "Esc to cancel"
-/// (e.g. fetch permissions). We scan a few lines back to detect those via
-/// the "❯ N." selection arrow pattern (e.g. "❯ 2. Yes, and don't ask again").
+/// Scans the last few non-empty lines bottom-up looking for:
+///   - Working: a line starting with a Unicode spinner (✽✢✳✶⏺) that also
+///     contains "…" — these are thinking/tool-execution progress indicators
+///   - Input: "Esc to cancel" on the last line, or a selection menu ("❯ N.")
+///   - Idle: anything else
 fn pane_status(session_name: &str) -> SessionStatus {
     let output = match std::process::Command::new("tmux")
         .args(["capture-pane", "-t", session_name, "-p"])
@@ -993,26 +991,22 @@ fn pane_status(session_name: &str) -> SessionStatus {
             continue;
         }
 
-        // Status bar is always the very last non-empty line
-        if lines_checked == 0 {
-            if trimmed.contains("esc to interrupt") {
+        // Input: permission prompt on the very last non-empty line
+        if lines_checked == 0 && trimmed.contains("Esc to cancel") {
+            return SessionStatus::Input;
+        }
+
+        // Working: line starts with a spinner character and contains "…"
+        // Spinners: ✽(U+273D) ✢(U+2722) ✳(U+2733) ✶(U+2736) ⏺(U+23FA)
+        if let Some(first) = trimmed.chars().next() {
+            if is_spinner(first) && trimmed.contains('\u{2026}') {
                 return SessionStatus::Working;
             }
-            if trimmed.contains("Esc to cancel") {
-                return SessionStatus::Input;
-            }
         }
 
-        // Tool execution shows "(ctrl+b ctrl+b (twice) to run in background)"
-        if trimmed.contains("to run in background") {
-            return SessionStatus::Working;
-        }
-
-        // Selection-style permission prompts show "❯ N." (arrow + digit)
-        // e.g. " ❯ 2. Yes, and don't ask again for docs.asciinema.org"
-        // This is distinct from the regular prompt "❯ user text".
-        if let Some(pos) = trimmed.find('❯') {
-            let after = trimmed[pos + '❯'.len_utf8()..].trim_start();
+        // Input: selection-style permission prompts ("❯ N.")
+        if let Some(pos) = trimmed.find('\u{276F}') { // ❯
+            let after = trimmed[pos + '\u{276F}'.len_utf8()..].trim_start();
             if after.starts_with(|c: char| c.is_ascii_digit()) {
                 return SessionStatus::Input;
             }
@@ -1025,6 +1019,21 @@ fn pane_status(session_name: &str) -> SessionStatus {
     }
 
     SessionStatus::Idle
+}
+
+/// Check if a character is a Claude Code activity spinner.
+fn is_spinner(c: char) -> bool {
+    matches!(c,
+        '\u{273D}' | // ✽
+        '\u{2722}' | // ✢
+        '\u{2733}' | // ✳
+        '\u{2736}' | // ✶
+        '\u{273B}' | // ✻
+        '\u{273A}' | // ✺
+        '\u{2734}' | // ✴
+        '\u{2735}' | // ✵
+        '\u{23FA}'   // ⏺
+    )
 }
 
 // --- Live session discovery ---
