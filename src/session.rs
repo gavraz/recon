@@ -1017,7 +1017,7 @@ fn pane_status(session_name: &str) -> SessionStatus {
         }
 
         lines_checked += 1;
-        if lines_checked >= 5 {
+        if lines_checked >= 10 {
             break;
         }
     }
@@ -1025,18 +1025,14 @@ fn pane_status(session_name: &str) -> SessionStatus {
     SessionStatus::Idle
 }
 
-/// Check if a character is a Claude Code activity spinner.
+/// Check if a character is a Claude Code activity indicator.
+/// Covers dingbat spinners (✽✢✳✶✻ etc.), record symbol (⏺),
+/// and middle dot (·) used for progress lines.
 fn is_spinner(c: char) -> bool {
     matches!(c,
-        '\u{273D}' | // ✽
-        '\u{2722}' | // ✢
-        '\u{2733}' | // ✳
-        '\u{2736}' | // ✶
-        '\u{273B}' | // ✻
-        '\u{273A}' | // ✺
-        '\u{2734}' | // ✴
-        '\u{2735}' | // ✵
-        '\u{23FA}'   // ⏺
+        '\u{2720}'..='\u{2767}' | // Dingbats: ✽✢✳✶✻✺✴✵ etc.
+        '\u{23FA}'              | // ⏺ (record)
+        '\u{00B7}'                // · (middle dot, used for progress)
     )
 }
 
