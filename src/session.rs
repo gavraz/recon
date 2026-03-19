@@ -979,6 +979,11 @@ fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, tmux_se
 /// Some permission prompts use a selection menu instead of "Esc to cancel"
 /// (e.g. fetch permissions). We scan a few lines back to detect those via
 /// the "❯ N." selection arrow pattern (e.g. "❯ 2. Yes, and don't ask again").
+///
+/// The spinner line (e.g. "✻ Jacking in… (3s · ↓ 50 tokens)") uses U+273B
+/// and appears a few lines above the status bar when Claude is working.
+/// This is a more robust Working signal than "esc to interrupt" which may
+/// be absent with custom status lines.
 fn pane_status(session_name: &str) -> SessionStatus {
     let output = match std::process::Command::new("tmux")
         .args(["capture-pane", "-t", session_name, "-p"])
@@ -991,6 +996,7 @@ fn pane_status(session_name: &str) -> SessionStatus {
     let content = String::from_utf8_lossy(&output.stdout);
 
     let mut lines_checked = 0;
+    let mut saw_spinner = false;
     for line in content.lines().rev() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -1017,10 +1023,26 @@ fn pane_status(session_name: &str) -> SessionStatus {
             }
         }
 
+        // Spinner line: "<dot> <verb>... (<elapsed>)" - the animated spinner
+        // cycles through 6 characters (from Claude Code source):
+        //   · (U+00B7), ✢ (U+2722), ✳ (U+2733), ✶ (U+2736), ✻ (U+273B), ✽ (U+273D)
+        // Only present while Claude is actively working.
+        if let Some(ch) = trimmed.chars().next() {
+            if matches!(ch, '\u{00B7}' | '\u{2722}' | '\u{2733}' | '\u{2736}' | '\u{273B}' | '\u{273D}')
+                && trimmed.contains('\u{2026}')
+            {
+                saw_spinner = true;
+            }
+        }
+
         lines_checked += 1;
-        if lines_checked >= 5 {
+        if lines_checked >= 10 {
             break;
         }
+    }
+
+    if saw_spinner {
+        return SessionStatus::Working;
     }
 
     SessionStatus::Idle
