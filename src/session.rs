@@ -173,7 +173,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 &path,
                 info.input_tokens,
                 info.output_tokens,
-                Some(&live.tmux_session),
+                Some(&live.pane_target),
             );
 
             matched_session_ids.insert(session_id.clone());
@@ -183,7 +183,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 project_name,
                 branch,
                 cwd,
-                tmux_session: Some(live.tmux_session.clone()),
+                tmux_session: Some(live.pane_target.clone()),
                 model: info.model,
                 effort: info.effort,
                 total_input_tokens: info.input_tokens,
@@ -231,13 +231,14 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
     //   1. Brand-new sessions (no JSONL yet) → show as New placeholder
     //   2. Resumed sessions (claude --resume creates a new session-id in the session file
     //      but continues appending to the original JSONL) → find via lsof, show real data
-    let known_tmux: std::collections::HashSet<String> = sessions
+    let known_pids: std::collections::HashSet<i32> = sessions
         .iter()
-        .filter_map(|s| s.tmux_session.clone())
+        .filter_map(|s| s.pid)
         .collect();
 
     for (session_id_key, live) in &live_map {
-        if known_tmux.contains(&live.tmux_session) {
+        // Skip sessions already matched by JSONL filename in the first scan
+        if known_pids.contains(&live.pid) {
             continue;
         }
 
@@ -295,7 +296,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 &path,
                 info.input_tokens,
                 info.output_tokens,
-                Some(&live.tmux_session),
+                Some(&live.pane_target),
             );
 
             sessions.push(Session {
@@ -303,7 +304,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 project_name,
                 branch,
                 cwd,
-                tmux_session: Some(live.tmux_session.clone()),
+                tmux_session: Some(live.pane_target.clone()),
                 model: info.model,
                 effort: info.effort,
                 total_input_tokens: info.input_tokens,
@@ -323,7 +324,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 project_name,
                 branch,
                 cwd: live.pane_cwd.clone(),
-                tmux_session: Some(live.tmux_session.clone()),
+                tmux_session: Some(live.pane_target.clone()),
                 model: None,
                 effort: None,
                 total_input_tokens: 0,
@@ -347,6 +348,8 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
 struct LiveSessionInfo {
     pid: i32,
     tmux_session: String,
+    /// Full pane target for tmux commands (e.g. "W:1.0"), addresses the exact pane.
+    pane_target: String,
     pane_cwd: String,
     started_at: u64,
 }
@@ -361,13 +364,14 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
     let tmux_panes = discover_claude_tmux_panes();
 
     let mut map = HashMap::new();
-    for (pid, tmux_session, pane_cwd) in tmux_panes {
+    for (pid, tmux_session, pane_target, pane_cwd) in tmux_panes {
         if let Some(info) = pid_session_map.get(&pid) {
             map.insert(
                 info.session_id.clone(),
                 LiveSessionInfo {
                     pid,
                     tmux_session,
+                    pane_target,
                     pane_cwd,
                     started_at: info.started_at,
                 },
@@ -375,11 +379,13 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
         } else {
             // Tmux pane running claude but no session file yet (just started).
             // Use the tmux session name as a placeholder key.
+            let placeholder = format!("tmux-{tmux_session}");
             map.insert(
-                format!("tmux-{tmux_session}"),
+                placeholder,
                 LiveSessionInfo {
                     pid,
                     tmux_session,
+                    pane_target,
                     pane_cwd,
                     started_at: 0,
                 },
@@ -901,30 +907,30 @@ fn find_jsonl_by_session_id(session_id: &str) -> Option<PathBuf> {
 
 /// Find the cwd used by an existing session (by scanning its JSONL for a cwd entry).
 /// Used by the resume command to start the tmux session in the right directory.
-/// Return session-id → tmux info for all currently live claude sessions.
+/// Return session-id → pane target for all currently live claude sessions.
 /// Used by the resume picker to filter out still-running sessions.
 pub fn build_live_session_map_public() -> HashMap<String, String> {
     build_live_session_map()
         .into_iter()
-        .map(|(id, info)| (id, info.tmux_session))
+        .map(|(id, info)| (id, info.pane_target))
         .collect()
 }
 
 /// Check if a session ID (JSONL-based) is already running in tmux.
-/// Returns the tmux session name if found.
+/// Returns the tmux pane target if found.
 pub fn find_live_tmux_for_session(session_id: &str) -> Option<String> {
     let live_map = build_live_session_map();
 
     // Direct match: PID file's session_id == the one we're looking for.
     if let Some(info) = live_map.get(session_id) {
-        return Some(info.tmux_session.clone());
+        return Some(info.pane_target.clone());
     }
 
     // Resumed session: RECON_RESUMED_FROM env var matches.
     for (_, info) in &live_map {
         if let Some(orig_id) = read_tmux_env(&info.tmux_session, "RECON_RESUMED_FROM") {
             if orig_id == session_id {
-                return Some(info.tmux_session.clone());
+                return Some(info.pane_target.clone());
             }
         }
     }
@@ -957,14 +963,14 @@ pub fn find_session_cwd(session_id: &str) -> Option<String> {
 /// - Working: JSONL modified in last 5s
 /// - Input: last activity within 10 minutes (active conversation, waiting for user)
 /// - Idle: last activity older than 10 minutes
-fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, tmux_session: Option<&str>) -> SessionStatus {
+fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, pane_target: Option<&str>) -> SessionStatus {
     if input_tokens == 0 && output_tokens == 0 {
         return SessionStatus::New;
     }
 
     // tmux pane content is the source of truth
-    if let Some(name) = tmux_session {
-        pane_status(name)
+    if let Some(target) = pane_target {
+        pane_status(target)
     } else {
         SessionStatus::Idle
     }
@@ -1075,14 +1081,14 @@ fn read_pid_session_map() -> HashMap<i32, SessionFileInfo> {
 }
 
 /// Get tmux panes running claude.
-/// Returns Vec<(pid, session_name, pane_cwd)>.
-fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
+/// Returns Vec<(pid, session_name, pane_target, pane_cwd)>.
+fn discover_claude_tmux_panes() -> Vec<(i32, String, String, String)> {
     let output = match std::process::Command::new("tmux")
         .args([
             "list-panes",
             "-a",
             "-F",
-            "#{pane_pid}|||#{session_name}|||#{pane_current_command}|||#{pane_current_path}",
+            "#{pane_pid}|||#{session_name}|||#{pane_current_command}|||#{pane_current_path}|||#{window_index}|||#{pane_index}",
         ])
         .output()
     {
@@ -1096,9 +1102,13 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
         .map(|h| h.join(".claude").join("sessions"))
         .unwrap_or_default();
 
+    // Build a parent->children map once via `ps`, used as fallback when pgrep
+    // misses children (observed on macOS).
+    let child_map = build_child_pid_map();
+
     for line in stdout.lines() {
-        let parts: Vec<&str> = line.splitn(4, "|||").collect();
-        if parts.len() < 4 {
+        let parts: Vec<&str> = line.splitn(6, "|||").collect();
+        if parts.len() < 6 {
             continue;
         }
         let pid: i32 = match parts[0].parse() {
@@ -1108,6 +1118,10 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
         let session_name = parts[1];
         let command = parts[2];
         let pane_path = parts[3];
+        let window_idx = parts[4];
+        let pane_idx = parts[5];
+        // Full pane target for tmux commands (addresses exact pane)
+        let pane_target = format!("{session_name}:{window_idx}.{pane_idx}");
 
         // Claude shows up as a version number (e.g. "2.1.76") or "claude" or "node"
         let is_claude = command
@@ -1119,20 +1133,20 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
             || command == "node";
 
         if is_claude {
-            // pane_pid is the initial process — it may be claude itself (recon launch)
+            // pane_pid is the initial process - it may be claude itself (recon launch)
             // or a shell with claude as the foreground child (manual `claude` in a terminal).
             // Try the pane PID first, fall back to searching children.
             let claude_pid = if sessions_dir.join(format!("{pid}.json")).exists() {
                 Some(pid)
             } else {
-                find_claude_child_pid(pid)
+                find_claude_child_pid(pid, &sessions_dir, &child_map)
             };
             if let Some(cpid) = claude_pid {
-                results.push((cpid, session_name.to_string(), pane_path.to_string()));
+                results.push((cpid, session_name.to_string(), pane_target, pane_path.to_string()));
             }
-        } else if command == "bash" || command == "sh" || command == "zsh" {
-            if let Some(claude_pid) = find_claude_child_pid(pid) {
-                results.push((claude_pid, session_name.to_string(), pane_path.to_string()));
+        } else if command == "bash" || command == "sh" || command == "zsh" || command == "fish" {
+            if let Some(claude_pid) = find_claude_child_pid(pid, &sessions_dir, &child_map) {
+                results.push((claude_pid, session_name.to_string(), pane_target, pane_path.to_string()));
             }
         }
     }
@@ -1140,17 +1154,56 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String)> {
     results
 }
 
-/// Check if a shell process has a claude child by looking for a child PID
-/// that has a corresponding ~/.claude/sessions/{PID}.json file.
-fn find_claude_child_pid(parent_pid: i32) -> Option<i32> {
-    let sessions_dir = dirs::home_dir()?.join(".claude").join("sessions");
-    let output = std::process::Command::new("pgrep")
+/// Build a map of parent PID → child PIDs from `ps -eo pid,ppid`.
+/// Single invocation, used as fallback when pgrep misses children on macOS.
+fn build_child_pid_map() -> HashMap<i32, Vec<i32>> {
+    let output = match std::process::Command::new("ps")
+        .args(["-eo", "pid,ppid"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return HashMap::new(),
+    };
+
+    let mut map: HashMap<i32, Vec<i32>> = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        if parts.len() == 2 {
+            if let (Ok(pid), Ok(ppid)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                map.entry(ppid).or_default().push(pid);
+            }
+        }
+    }
+    map
+}
+
+/// Find a child of `parent_pid` that has a ~/.claude/sessions/{PID}.json file.
+/// Tries pgrep first, falls back to the pre-built child map (pgrep can miss
+/// children on macOS in some process configurations).
+fn find_claude_child_pid(
+    parent_pid: i32,
+    sessions_dir: &Path,
+    child_map: &HashMap<i32, Vec<i32>>,
+) -> Option<i32> {
+    // Try pgrep first (fast, targeted)
+    if let Ok(output) = std::process::Command::new("pgrep")
         .args(["-P", &parent_pid.to_string()])
         .output()
-        .ok()?;
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|l| l.trim().parse::<i32>().ok())
+    {
+        let result = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse::<i32>().ok())
+            .find(|pid| sessions_dir.join(format!("{pid}.json")).exists());
+        if result.is_some() {
+            return result;
+        }
+    }
+
+    // Fallback: use the ps-based child map
+    child_map
+        .get(&parent_pid)?
+        .iter()
+        .copied()
         .find(|pid| sessions_dir.join(format!("{pid}.json")).exists())
 }
 
