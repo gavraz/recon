@@ -201,10 +201,10 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(_, s)| {
-                let name = if s.room_id.is_empty() {
+                let name = if s.project_name.is_empty() {
                     "unknown".to_string()
                 } else {
-                    s.room_id.clone()
+                    s.room_id()
                 };
                 &name == room_name
             })
@@ -237,7 +237,8 @@ impl App {
                     "project_name": s.project_name,
                     "branch": s.branch,
                     "cwd": s.cwd,
-                    "room_id": s.room_id,
+                    "room_id": s.room_id(),
+                    "relative_dir": s.relative_dir,
                     "tmux_session": s.tmux_session,
                     "model": s.model,
                     "model_display": s.model_display(),

@@ -259,10 +259,10 @@ fn group_into_rooms(sessions: &[Session]) -> Vec<Room> {
     let mut map: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
     for (i, s) in sessions.iter().enumerate() {
-        let room_name = if s.room_id.is_empty() {
+        let room_name = if s.project_name.is_empty() {
             "unknown".to_string()
         } else {
-            s.room_id.clone()
+            s.room_id()
         };
         map.entry(room_name).or_default().push(i);
     }
@@ -637,10 +637,10 @@ mod tests {
     fn make_session(cwd: &str, status: SessionStatus, last_activity: Option<&str>) -> Session {
         Session {
             session_id: String::new(),
-            project_name: String::new(),
+            project_name: cwd.to_string(),
             branch: None,
             cwd: cwd.to_string(),
-            room_id: cwd.to_string(),
+            relative_dir: None,
             tmux_session: None,
             model: None,
             effort: None,
@@ -715,12 +715,12 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_share_room_by_room_id() {
-        // Two sessions with different CWDs but same room_id should be in the same room
+    fn worktrees_share_room_by_project_name() {
+        // Two sessions with different CWDs but same project_name should be in the same room
         let mut s1 = make_session("/repos/line5", SessionStatus::Idle, Some("2026-03-16T10:00:00Z"));
-        s1.room_id = "line5".to_string();
+        s1.project_name = "line5".to_string();
         let mut s2 = make_session("/worktrees/line5-feat", SessionStatus::Working, Some("2026-03-16T11:00:00Z"));
-        s2.room_id = "line5".to_string();
+        s2.project_name = "line5".to_string();
         let rooms = group_into_rooms(&[s1, s2]);
         assert_eq!(rooms.len(), 1);
         assert_eq!(rooms[0].name, "line5");
@@ -731,9 +731,10 @@ mod tests {
     fn subproject_gets_separate_room() {
         // Root and subproject should be different rooms
         let mut s1 = make_session("/repos/line5", SessionStatus::Idle, Some("2026-03-16T10:00:00Z"));
-        s1.room_id = "line5".to_string();
+        s1.project_name = "line5".to_string();
         let mut s2 = make_session("/repos/line5/tools/solo", SessionStatus::Idle, Some("2026-03-16T11:00:00Z"));
-        s2.room_id = "line5 \u{203A} tools/solo".to_string();
+        s2.project_name = "line5".to_string();
+        s2.relative_dir = Some("tools/solo".to_string());
         let rooms = group_into_rooms(&[s1, s2]);
         assert_eq!(rooms.len(), 2);
     }

@@ -24,7 +24,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(vec![
         Cell::from(" # "),
         Cell::from("Session"),
-        Cell::from("Git(Project::Branch)"),
+        Cell::from("Project"),
         Cell::from("Directory"),
         Cell::from("Status"),
         Cell::from("Model"),
@@ -74,14 +74,18 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
 
             let cwd_display = shorten_home(&session.cwd);
 
-            // Project: repo::branch
-            let project_cell = match &session.branch {
-                Some(b) => Cell::from(Line::from(vec![
-                    Span::raw(&session.project_name),
-                    Span::styled("::", Style::default().fg(Color::DarkGray)),
-                    Span::styled(b, Style::default().fg(Color::Green)),
-                ])),
-                None => Cell::from(session.project_name.clone()),
+            // Project: repo::relative_dir::branch
+            let project_cell = {
+                let mut spans = vec![Span::raw(&session.project_name)];
+                if let Some(dir) = &session.relative_dir {
+                    spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(dir.clone(), Style::default().fg(Color::Cyan)));
+                }
+                if let Some(b) = &session.branch {
+                    spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(b, Style::default().fg(Color::Green)));
+                }
+                Cell::from(Line::from(spans))
             };
 
             // Status: colored dot + label
