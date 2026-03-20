@@ -440,7 +440,7 @@ if should_run "multi_pane_status"; then
 fi
 
 
-# --- Test 13: JSON output includes pane_target field ---
+# --- Test 12: JSON output includes pane_target field ---
 if should_run "pane_target_json"; then
     # Ensure we have a session to inspect
     if ! tmux has-session -t "$S_MULTI" 2>/dev/null; then

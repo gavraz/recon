@@ -31,7 +31,7 @@ fn main() -> io::Result<()> {
         Some(Command::New) => {
             let result = new_session::run_new_session_form()?;
             if let Some(name) = result {
-                tmux::switch_to_session(&name);
+                tmux::switch_to_pane(&name);
             }
         }
         Some(Command::Launch { name_only }) => {
@@ -41,7 +41,7 @@ fn main() -> io::Result<()> {
                     if name_only {
                         print!("{name}");
                     } else {
-                        tmux::switch_to_session(&name);
+                        tmux::switch_to_pane(&name);
                         eprintln!("Session: {name}");
                     }
                 }
@@ -56,7 +56,7 @@ fn main() -> io::Result<()> {
                 match tmux::resume_session(&session_id, name.as_deref()) {
                     Ok(sess) => {
                         if !no_attach {
-                            tmux::switch_to_session(&sess);
+                            tmux::switch_to_pane(&sess);
                         }
                         eprintln!("Resumed in session: {sess}");
                     }
@@ -70,7 +70,7 @@ fn main() -> io::Result<()> {
                 if let Some((session_id, sess_name)) = result {
                     match tmux::resume_session(&session_id, Some(&sess_name)) {
                         Ok(sess) => {
-                            tmux::switch_to_session(&sess);
+                            tmux::switch_to_pane(&sess);
                             eprintln!("Resumed in session: {sess}");
                         }
                         Err(e) => {
@@ -86,7 +86,7 @@ fn main() -> io::Result<()> {
             app.refresh();
             if let Some(session) = app.sessions.iter().find(|s| s.status == session::SessionStatus::Input) {
                 if let Some(target) = &session.pane_target {
-                    tmux::switch_to_session(target);
+                    tmux::switch_to_pane(target);
                 }
             }
         }

@@ -76,7 +76,7 @@ impl App {
     fn jump_to_next_input(&mut self) {
         if let Some(session) = self.sessions.iter().find(|s| s.status == session::SessionStatus::Input) {
             if let Some(target) = &session.pane_target {
-                tmux::switch_to_session(target);
+                tmux::switch_to_pane(target);
                 self.should_quit = true;
             }
         }
@@ -99,7 +99,7 @@ impl App {
             KeyCode::Enter => {
                 if let Some(session) = self.sessions.get(self.selected) {
                     if let Some(target) = &session.pane_target {
-                        tmux::switch_to_session(target);
+                        tmux::switch_to_pane(target);
                         self.should_quit = true;
                     }
                 }
@@ -131,7 +131,7 @@ impl App {
                 KeyCode::Enter => {
                     if let Some(session) = self.selected_zoomed_session() {
                         if let Some(target) = session.pane_target.clone() {
-                            tmux::switch_to_session(&target);
+                            tmux::switch_to_pane(&target);
                             self.should_quit = true;
                         }
                     }
@@ -153,7 +153,7 @@ impl App {
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_else(|| "claude".to_string());
                         if let Ok(name) = tmux::create_session(&default_name, &cwd) {
-                            tmux::switch_to_session(&name);
+                            tmux::switch_to_pane(&name);
                             self.should_quit = true;
                         }
                     }
