@@ -184,7 +184,7 @@ fn format_timestamp(ts: &str) -> String {
             let diff = now - dt;
 
             if diff.num_seconds() < 60 {
-                format!("{}s ago", diff.num_seconds())
+                "< 1m".to_string()
             } else if diff.num_minutes() < 60 {
                 format!("{}m ago", diff.num_minutes())
             } else if diff.num_hours() < 24 {

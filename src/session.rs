@@ -377,13 +377,21 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
         }
     }
 
-    // Sort by last activity (most recent first), then by started_at as tiebreaker
+    // Sort by last activity at minute resolution (most recent first),
+    // then by started_at as tiebreaker. Truncating to the minute prevents
+    // the table from reordering on every poll cycle.
     sessions.sort_by(|a, b| {
-        b.last_activity
-            .cmp(&a.last_activity)
+        truncate_to_minute(&b.last_activity)
+            .cmp(&truncate_to_minute(&a.last_activity))
             .then(b.started_at.cmp(&a.started_at))
     });
     sessions
+}
+
+/// Truncate an ISO timestamp to minute resolution for stable sorting.
+/// "2026-03-19T21:25:34.098Z" → Some("2026-03-19T21:25")
+fn truncate_to_minute(ts: &Option<String>) -> Option<String> {
+    ts.as_ref().map(|s| s.get(..16).unwrap_or(s).to_string())
 }
 
 /// Info about a live claude session, built from tmux + session files.
