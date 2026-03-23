@@ -244,13 +244,13 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
     //   1. Brand-new sessions (no JSONL yet) → show as New placeholder
     //   2. Resumed sessions (claude --resume creates a new session-id in the session file
     //      but continues appending to the original JSONL) → find via lsof, show real data
-    let known_tmux: std::collections::HashSet<String> = sessions
+    let known_pids: std::collections::HashSet<i32> = sessions
         .iter()
-        .filter_map(|s| s.tmux_session.clone())
+        .filter_map(|s| s.pid)
         .collect();
 
     for (session_id_key, live) in &live_map {
-        if known_tmux.contains(&live.tmux_session) {
+        if known_pids.contains(&live.pid) {
             continue;
         }
 
@@ -431,9 +431,9 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
             );
         } else {
             // Tmux pane running claude but no session file yet (just started).
-            // Use the tmux session name as a placeholder key.
+            // Use the pane target as a placeholder key (unique per pane).
             map.insert(
-                format!("tmux-{tmux_session}"),
+                format!("tmux-{pane_target}"),
                 LiveSessionInfo {
                     pid,
                     tmux_session,

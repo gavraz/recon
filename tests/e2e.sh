@@ -15,12 +15,15 @@ S_RESUME_NEW="e2e-${RID}-res-new"
 S_RESET="e2e-${RID}-reset"
 S_WORKING="e2e-${RID}-working"
 S_MULTI="e2e-${RID}-multi"
+S_DUAL="e2e-${RID}-dual"
 TMPDIR_NEW="/tmp/recon-e2e-${RID}"
 TMPDIR_INPUT="/tmp/recon-e2e-${RID}-input"
 TMPDIR_RESUME="/tmp/recon-e2e-${RID}-resume"
 TMPDIR_RESET="/tmp/recon-e2e-${RID}-reset"
 TMPDIR_WORKING="/tmp/recon-e2e-${RID}-working"
 TMPDIR_MULTI="/tmp/recon-e2e-${RID}-multi"
+TMPDIR_DUAL_A="/tmp/recon-e2e-${RID}-dual-a"
+TMPDIR_DUAL_B="/tmp/recon-e2e-${RID}-dual-b"
 TMPFILE="/tmp/recon-e2e-${RID}-testfile.txt"
 FIXTURES="$(cd "$(dirname "$0")" && pwd)/fixtures"
 
@@ -29,7 +32,7 @@ CLAUDE_EFFORT="${CLAUDE_EFFORT:-low}"
 CLAUDE_FLAGS="--model $CLAUDE_MODEL --effort $CLAUDE_EFFORT"
 
 # --- Test selection ---
-ALL_TESTS=(new_state working_state idle_state token_stability sort_order input_state resume_tokens resume_idempotency reset_activity working_sonnet multi_pane_status pane_target_json)
+ALL_TESTS=(new_state working_state idle_state token_stability sort_order input_state resume_tokens resume_idempotency reset_activity working_sonnet multi_pane_status pane_target_json dual_pane_discovery)
 RUN_TESTS=("$@")
 
 should_run() {
@@ -61,7 +64,7 @@ cleanup() {
     tmux list-sessions -F '#{session_name}' 2>/dev/null \
         | grep "^e2e-${RID}-" \
         | while read -r s; do tmux kill-session -t "$s" 2>/dev/null || true; done
-    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPDIR_RESET" "$TMPDIR_WORKING" "$TMPDIR_MULTI" "$TMPFILE"
+    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPDIR_RESET" "$TMPDIR_WORKING" "$TMPDIR_MULTI" "$TMPDIR_DUAL_A" "$TMPDIR_DUAL_B" "$TMPFILE"
 }
 trap cleanup EXIT
 
@@ -456,6 +459,79 @@ if should_run "pane_target_json"; then
         report pass "pane_target JSON: field present with correct format ($pane_target)"
     else
         report fail "pane_target JSON: expected session:window.pane format but got '$pane_target'"
+    fi
+fi
+
+# --- Test 13: Two Claude panes in same tmux session (fresh + resumed) ---
+# The bug: the dedup loop at discover_sessions() line ~245 uses tmux_session name
+# to skip already-matched live entries. When a fresh and a resumed Claude share
+# the same tmux session, the resumed one has a new session_id in PID.json that
+# doesn't match any JSONL filename, so it enters the dedup loop — where
+# known_tmux blocks it because the fresh session already claimed the session name.
+# Result: the resumed pane is invisible to recon.
+if should_run "dual_pane_discovery"; then
+    CLAUDE_PATH="$(which claude)"
+    mkdir -p "$TMPDIR_DUAL_A" "$TMPDIR_DUAL_B"
+
+    # Start tmux session with Claude in pane 0, wrapped in bash so shell remains after exit
+    tmux new-session -d -s "$S_DUAL" -c "$TMPDIR_DUAL_A" \
+        "bash -c '$CLAUDE_PATH $CLAUDE_FLAGS 2>&1; exec bash'"
+
+    wait_for_state "$S_DUAL" "New" 15 >/dev/null 2>&1 || true
+    sleep 3
+
+    # Do some work to get a session with tokens
+    tmux send-keys -t "$S_DUAL:0.0" "say exactly: dual pane test" Enter
+    wait_for_state "$S_DUAL" "Idle" 30 >/dev/null 2>&1 || true
+
+    # Exit Claude — bash shell remains in pane 0
+    tmux send-keys -t "$S_DUAL:0.0" "exit" Enter
+    sleep 4
+
+    # Get the session-id from Claude's exit message
+    DUAL_SESSION_ID=$(tmux capture-pane -t "$S_DUAL:0.0" -p -S -200 2>/dev/null \
+        | grep -oE 'claude --resume [a-zA-Z0-9-]+' | tail -1 | awk '{print $NF}' || true)
+
+    if [[ -z "$DUAL_SESSION_ID" ]]; then
+        echo "  Could not parse session-id for dual pane test. Pane content:"
+        tmux capture-pane -t "$S_DUAL:0.0" -p -S -10 2>/dev/null | sed 's/^/    /'
+        report fail "Dual-pane discovery: could not parse session-id"
+    else
+        echo "  Original session-id: $DUAL_SESSION_ID"
+
+        # Start fresh Claude in pane 0 (new session, same tmux session)
+        tmux send-keys -t "$S_DUAL:0.0" "$CLAUDE_PATH $CLAUDE_FLAGS" Enter
+        wait_for_state "$S_DUAL" "New" 15 >/dev/null 2>&1 || true
+        sleep 3
+        tmux send-keys -t "$S_DUAL:0.0" "say exactly: fresh session" Enter
+        wait_for_state "$S_DUAL" "Idle" 30 >/dev/null 2>&1 || true
+
+        # Split window and start resumed Claude in pane 1 (same tmux session, same CWD)
+        tmux split-window -t "$S_DUAL" -c "$TMPDIR_DUAL_A" \
+            "$CLAUDE_PATH $CLAUDE_FLAGS --resume $DUAL_SESSION_ID"
+
+        # Poll until recon sees 2 sessions with this tmux_session name (or timeout)
+        elapsed=0
+        timeout=20
+        count=0
+        while (( elapsed < timeout )); do
+            count=$("$RECON" json 2>/dev/null | jq --arg name "$S_DUAL" \
+                '[.sessions[] | select(.tmux_session == $name)] | length')
+            if [[ "$count" -eq 2 ]]; then
+                break
+            fi
+            sleep 1
+            (( elapsed++ )) || true
+        done
+
+        if [[ "$count" -eq 2 ]]; then
+            report pass "Dual-pane discovery: both fresh and resumed sessions detected in same tmux session"
+        else
+            echo "  Expected 2 sessions for tmux_session=$S_DUAL but found $count"
+            "$RECON" json 2>/dev/null | jq --arg name "$S_DUAL" \
+                '.sessions[] | select(.tmux_session == $name)' | sed 's/^/    /'
+            report fail "Dual-pane discovery: resumed session not detected (dedup on tmux_session blocks it)"
+        fi
     fi
 fi
 
