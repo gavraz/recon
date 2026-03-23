@@ -244,6 +244,12 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
     //   1. Brand-new sessions (no JSONL yet) → show as New placeholder
     //   2. Resumed sessions (claude --resume creates a new session-id in the session file
     //      but continues appending to the original JSONL) → find via lsof, show real data
+    //
+    // Dedup by PID, not tmux session name. Multiple Claude instances can share
+    // a tmux session (e.g. two panes). Deduping by session name would silently
+    // hide the second instance. PID is the unique identifier per Claude process,
+    // so each instance gets its own stable entry in the table — even if the TUI
+    // shows duplicate session names.
     let known_pids: std::collections::HashSet<i32> = sessions
         .iter()
         .filter_map(|s| s.pid)
@@ -431,7 +437,8 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
             );
         } else {
             // Tmux pane running claude but no session file yet (just started).
-            // Use the pane target as a placeholder key (unique per pane).
+            // Use pane_target (not tmux session name) as placeholder key so that
+            // two Claude panes in the same tmux session don't collide.
             map.insert(
                 format!("tmux-{pane_target}"),
                 LiveSessionInfo {
