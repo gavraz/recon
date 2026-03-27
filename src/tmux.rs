@@ -142,7 +142,26 @@ pub fn kill_session(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Sanitize a string for use as a tmux session name (no dots or colons).
+/// Sanitize a string for use as a tmux session name.
+/// Replaces tmux-special characters and strips control chars / leading dashes
+/// to prevent injection via crafted directory names (#8).
 fn sanitize_session_name(name: &str) -> String {
-    name.replace('.', "-").replace(':', "-")
+    let sanitized: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| match c {
+            '.' | ':' | '$' | '!' | '%' | '@' | '#' | '?' | '{' | '}' | '~' | '=' | ' '
+            | '\'' | '"' | '\\' | '/' => '-',
+            _ => c,
+        })
+        .collect();
+
+    // Strip leading dashes so the name cannot be interpreted as a tmux flag
+    let trimmed = sanitized.trim_start_matches('-');
+
+    if trimmed.is_empty() {
+        "claude".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }

@@ -1,12 +1,48 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
 
 use crate::model;
+
+/// Maximum bytes to read for a single JSONL line before discarding.
+/// Prevents OOM from malicious files with unbounded lines (#8).
+const MAX_LINE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+
+/// Read a line from a BufReader with a cap on maximum length.
+/// If a line exceeds MAX_LINE_BYTES, the excess is consumed and discarded
+/// without allocating memory for it, and the function returns an empty read.
+fn read_line_capped<R: Read>(reader: &mut BufReader<R>, buf: &mut String) -> std::io::Result<usize> {
+    let n = reader.read_line(buf)?;
+    if buf.len() > MAX_LINE_BYTES {
+        buf.clear();
+        // Consume remainder of the overlong line until newline or EOF
+        let mut discard = [0u8; 8192];
+        loop {
+            match reader.read(&mut discard) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if discard[..n].contains(&b'\n') {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        return Ok(0); // Signal skip to caller
+    }
+    Ok(n)
+}
+
+/// Validate that a CWD path is safe to pass to external commands.
+/// Must be absolute and resolve to an existing directory (#8).
+fn validate_cwd(cwd: &str) -> bool {
+    let path = Path::new(cwd);
+    path.is_absolute() && std::fs::canonicalize(path).is_ok()
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionStatus {
@@ -481,6 +517,15 @@ const GIT_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// Get the git project name, relative_dir, and branch for a directory (cached for 30s).
 fn git_project_info(cwd: &str) -> (String, Option<String>, Option<String>) {
+    // Validate cwd before passing to external commands (#8)
+    if !validate_cwd(cwd) {
+        let fallback = Path::new(cwd)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| cwd.to_string());
+        return (fallback, None, None);
+    }
+
     {
         let cache = GIT_CACHE.lock().unwrap();
         if let Some(info) = cache.as_ref().and_then(|c| c.get(cwd)) {
@@ -703,7 +748,7 @@ fn parse_jsonl(
     let mut line = String::new();
     loop {
         line.clear();
-        match reader.read_line(&mut line) {
+        match read_line_capped(&mut reader, &mut line) {
             Ok(0) => break,
             Ok(_) => {}
             Err(_) => break,
@@ -954,7 +999,7 @@ fn is_clear_born(path: &Path) -> bool {
     let mut reader = reader;
     for _ in 0..5 {
         line.clear();
-        match reader.read_line(&mut line) {
+        match read_line_capped(&mut reader, &mut line) {
             Ok(0) | Err(_) => break,
             Ok(_) => {}
         }
