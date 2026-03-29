@@ -328,7 +328,8 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
         let _ = read_line_capped(&mut reader, &mut discard);
     }
 
-    let mut lines = Vec::new();
+    const TAIL_LINES: usize = 50;
+    let mut ring = std::collections::VecDeque::with_capacity(TAIL_LINES);
     let mut line = String::new();
     loop {
         line.clear();
@@ -336,7 +337,10 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
             Ok(0) => break,
             Ok(_) => {
                 if !line.trim().is_empty() {
-                    lines.push(std::mem::take(&mut line));
+                    if ring.len() == TAIL_LINES {
+                        ring.pop_front();
+                    }
+                    ring.push_back(std::mem::take(&mut line));
                 }
             }
             Err(_) => break,
@@ -348,7 +352,7 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
     let mut input_tokens = 0u64;
     let mut output_tokens = 0u64;
 
-    for line in lines.iter().rev().take(50) {
+    for line in ring.iter().rev() {
         // Pick up gitBranch from any recent entry
         if branch.is_none() && line.contains("\"gitBranch\"") {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {

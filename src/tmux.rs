@@ -20,6 +20,10 @@ pub fn switch_to_pane(target: &str) {
 /// Launch claude in a new tmux session with the given name and working directory.
 /// Returns the session name on success.
 pub fn create_session(name: &str, cwd: &str) -> Result<String, String> {
+    if !session::validate_cwd(cwd) {
+        return Err(format!("Invalid working directory: {cwd}"));
+    }
+
     let base_name = sanitize_session_name(name);
     let session_name = unique_session_name(&base_name);
 
@@ -145,17 +149,12 @@ pub fn kill_session(name: &str) -> bool {
 }
 
 /// Sanitize a string for use as a tmux session name.
-/// Replaces tmux-special characters and strips control chars / leading dashes
-/// to prevent injection via crafted directory names.
+/// Uses an allowlist (alphanumeric, `-`, `_`) to prevent injection via
+/// crafted directory names. Leading dashes are stripped to avoid flag injection.
 fn sanitize_session_name(name: &str) -> String {
     let sanitized: String = name
         .chars()
-        .filter(|c| !c.is_control())
-        .map(|c| match c {
-            '.' | ':' | '$' | '!' | '%' | '@' | '#' | '?' | '{' | '}' | '~' | '=' | ' '
-            | '\'' | '"' | '\\' | '/' => '-',
-            _ => c,
-        })
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
         .collect();
 
     let trimmed = sanitized.trim_start_matches('-');

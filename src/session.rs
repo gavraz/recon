@@ -39,6 +39,7 @@ pub(crate) fn read_line_capped<R: Read>(
             } else {
                 overflowed = true;
                 raw = Vec::new();
+                buf.clear();
             }
         }
 
