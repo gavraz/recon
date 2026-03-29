@@ -1,12 +1,72 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use crate::model;
+
+/// Maximum bytes per JSONL line before discarding.
+/// Prevents OOM from malicious files with unbounded lines.
+const MAX_LINE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+
+/// Read a line with a cap on allocation. Uses fill_buf/consume to avoid
+/// allocating beyond the cap. Returns Ok(0) at EOF. Overlong lines are
+/// consumed and discarded (buf left empty, positive byte count returned
+/// so callers can distinguish from EOF).
+pub(crate) fn read_line_capped<R: Read>(
+    reader: &mut BufReader<R>,
+    buf: &mut String,
+) -> std::io::Result<usize> {
+    let mut raw = Vec::new();
+    let mut overflowed = false;
+    let mut total_consumed = 0usize;
+
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            break;
+        }
+
+        let newline_pos = available.iter().position(|&b| b == b'\n');
+        let chunk_end = newline_pos.map(|p| p + 1).unwrap_or(available.len());
+
+        if !overflowed {
+            if raw.len() + chunk_end <= MAX_LINE_BYTES {
+                raw.extend_from_slice(&available[..chunk_end]);
+            } else {
+                overflowed = true;
+                raw = Vec::new();
+            }
+        }
+
+        total_consumed += chunk_end;
+        reader.consume(chunk_end);
+
+        if newline_pos.is_some() {
+            break;
+        }
+    }
+
+    if total_consumed == 0 {
+        return Ok(0); // EOF
+    }
+
+    if !overflowed {
+        *buf = String::from_utf8(raw).unwrap_or_default();
+    }
+
+    Ok(total_consumed)
+}
+
+/// Validate that a CWD path is safe to pass to external commands.
+/// Must be absolute and resolve to an existing directory.
+pub(crate) fn validate_cwd(cwd: &str) -> bool {
+    let path = Path::new(cwd);
+    path.is_absolute() && path.is_dir()
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionStatus {
@@ -448,6 +508,14 @@ const GIT_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// Get the git project name, relative_dir, and branch for a directory (cached for 30s).
 fn git_project_info(cwd: &str) -> (String, Option<String>, Option<String>) {
+    if !validate_cwd(cwd) {
+        let fallback = Path::new(cwd)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| cwd.to_string());
+        return (fallback, None, None);
+    }
+
     {
         let cache = GIT_CACHE.lock().unwrap();
         if let Some(info) = cache.as_ref().and_then(|c| c.get(cwd)) {
@@ -670,7 +738,7 @@ fn parse_jsonl(
     let mut line = String::new();
     loop {
         line.clear();
-        match reader.read_line(&mut line) {
+        match read_line_capped(&mut reader, &mut line) {
             Ok(0) => break,
             Ok(_) => {}
             Err(_) => break,
@@ -912,8 +980,14 @@ pub fn find_session_cwd(session_id: &str) -> Option<String> {
             continue;
         }
         let file = fs::File::open(&jsonl_path).ok()?;
-        let reader = std::io::BufReader::new(file);
-        for line in reader.lines().take(20).flatten() {
+        let mut reader = BufReader::new(file);
+        let mut line = String::new();
+        for _ in 0..20 {
+            line.clear();
+            match read_line_capped(&mut reader, &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
                 if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
                     return Some(cwd.to_string());

@@ -304,18 +304,51 @@ struct JsonlSummary {
 }
 
 /// Read model, branch, and total tokens from the last assistant entry in a JSONL file.
+/// Seeks to the tail of large files to avoid reading the entire file into memory.
 fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return JsonlSummary { model: None, branch: None, tokens: 0 },
+    use std::io::{BufReader, Seek, SeekFrom};
+    use crate::session::read_line_capped;
+
+    let empty = JsonlSummary { model: None, branch: None, tokens: 0 };
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return empty,
     };
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut reader = BufReader::new(file);
+
+    // Only read the last 1MB — we only need the last ~50 lines.
+    const TAIL_BYTES: u64 = 1024 * 1024;
+    if size > TAIL_BYTES {
+        if reader.seek(SeekFrom::Start(size - TAIL_BYTES)).is_err() {
+            return empty;
+        }
+        // Discard partial first line after seek
+        let mut discard = String::new();
+        let _ = read_line_capped(&mut reader, &mut discard);
+    }
+
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match read_line_capped(&mut reader, &mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if !line.trim().is_empty() {
+                    lines.push(std::mem::take(&mut line));
+                }
+            }
+            Err(_) => break,
+        }
+    }
 
     let mut model = None;
     let mut branch = None;
     let mut input_tokens = 0u64;
     let mut output_tokens = 0u64;
 
-    for line in content.lines().rev().take(50) {
+    for line in lines.iter().rev().take(50) {
         // Pick up gitBranch from any recent entry
         if branch.is_none() && line.contains("\"gitBranch\"") {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
@@ -332,8 +365,8 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
                     if input_tokens == 0 {
                         if let Some(usage) = msg.get("usage") {
                             input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0)
-                                + usage.get("cache_creation_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0)
-                                + usage.get("cache_read_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+                                .saturating_add(usage.get("cache_creation_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0))
+                                .saturating_add(usage.get("cache_read_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0));
                             output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
                         }
                     }
@@ -348,7 +381,7 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
     JsonlSummary {
         model,
         branch,
-        tokens: input_tokens + output_tokens,
+        tokens: input_tokens.saturating_add(output_tokens),
     }
 }
 
