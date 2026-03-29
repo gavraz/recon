@@ -328,6 +328,8 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
         let _ = read_line_capped(&mut reader, &mut discard);
     }
 
+    // Heuristic: scan the last N lines for model/branch/tokens.
+    // In practice the last assistant entry is near the end of the file.
     const TAIL_LINES: usize = 50;
     let mut ring = std::collections::VecDeque::with_capacity(TAIL_LINES);
     let mut line = String::new();
