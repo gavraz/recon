@@ -165,3 +165,46 @@ fn sanitize_session_name(name: &str) -> String {
         trimmed.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_normal_name() {
+        assert_eq!(sanitize_session_name("my-project"), "my-project");
+        assert_eq!(sanitize_session_name("foo_bar"), "foo_bar");
+    }
+
+    #[test]
+    fn sanitize_dots_and_colons() {
+        assert_eq!(sanitize_session_name("my.project:1"), "my-project-1");
+    }
+
+    #[test]
+    fn sanitize_shell_metacharacters() {
+        assert_eq!(sanitize_session_name("$HOME;rm -rf /"), "HOME-rm--rf--");
+    }
+
+    #[test]
+    fn sanitize_control_chars() {
+        assert_eq!(sanitize_session_name("hello\x00\x1bworld"), "hello--world");
+    }
+
+    #[test]
+    fn sanitize_leading_dashes_stripped() {
+        assert_eq!(sanitize_session_name("--flag"), "flag");
+        assert_eq!(sanitize_session_name("...name"), "name");
+    }
+
+    #[test]
+    fn sanitize_all_special_becomes_claude() {
+        assert_eq!(sanitize_session_name("..."), "claude");
+        assert_eq!(sanitize_session_name(""), "claude");
+    }
+
+    #[test]
+    fn sanitize_unicode_preserved() {
+        assert_eq!(sanitize_session_name("café"), "café");
+    }
+}

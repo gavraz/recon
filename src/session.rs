@@ -1220,3 +1220,101 @@ fn find_claude_child_pid(parent_pid: i32) -> Option<i32> {
         .find(|pid| sessions_dir.join(format!("{pid}.json")).exists())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn read_line_capped_normal() {
+        let data = b"hello\nworld\n";
+        let mut reader = BufReader::new(Cursor::new(data));
+        let mut buf = String::new();
+
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert!(n > 0);
+        assert_eq!(buf, "hello\n");
+
+        buf.clear();
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert!(n > 0);
+        assert_eq!(buf, "world\n");
+
+        buf.clear();
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert_eq!(n, 0); // EOF
+    }
+
+    #[test]
+    fn read_line_capped_no_trailing_newline() {
+        let data = b"no newline";
+        let mut reader = BufReader::new(Cursor::new(data));
+        let mut buf = String::new();
+
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert!(n > 0);
+        assert_eq!(buf, "no newline");
+    }
+
+    #[test]
+    fn read_line_capped_empty() {
+        let data = b"";
+        let mut reader = BufReader::new(Cursor::new(data));
+        let mut buf = String::new();
+
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert_eq!(n, 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn read_line_capped_overlong_discarded() {
+        // Create a line that exceeds MAX_LINE_BYTES, followed by a normal line
+        let mut data = vec![b'x'; MAX_LINE_BYTES + 100];
+        data.push(b'\n');
+        data.extend_from_slice(b"ok\n");
+
+        let mut reader = BufReader::new(Cursor::new(data));
+        let mut buf = String::new();
+
+        // First line is overlong — should be discarded
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert!(n > 0); // consumed bytes, not EOF
+        assert!(buf.is_empty()); // but buf is empty
+
+        // Second line should read normally
+        buf.clear();
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert!(n > 0);
+        assert_eq!(buf, "ok\n");
+    }
+
+    #[test]
+    fn read_line_capped_overflow_clears_stale_buf() {
+        let mut data = vec![b'x'; MAX_LINE_BYTES + 100];
+        data.push(b'\n');
+
+        let mut reader = BufReader::new(Cursor::new(data));
+        let mut buf = String::from("stale data");
+
+        let n = read_line_capped(&mut reader, &mut buf).unwrap();
+        assert!(n > 0);
+        assert!(buf.is_empty()); // stale data cleared
+    }
+
+    #[test]
+    fn validate_cwd_rejects_relative() {
+        assert!(!validate_cwd("relative/path"));
+    }
+
+    #[test]
+    fn validate_cwd_rejects_nonexistent() {
+        assert!(!validate_cwd("/nonexistent/path/that/does/not/exist"));
+    }
+
+    #[test]
+    fn validate_cwd_accepts_real_dir() {
+        assert!(validate_cwd("/tmp"));
+    }
+}
+
