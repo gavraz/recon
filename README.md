@@ -37,7 +37,7 @@ Creatures are rendered as colored pixel art using half-block characters. Working
 │  5  scratch          recon::main            ~/repos/recon      ● Idle  Opus 4.6    3k/1M    10m ago     │
 │  6  new-session      dotfiles::main         ~/repos/dotfiles   ● New   —           —        —           │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-j/k navigate  Enter switch  v view  r refresh  q quit
+j/k navigate  Enter switch  / search  v view  q quit
 ```
 
 - **Input** rows are highlighted — these sessions are blocked waiting for your approval
@@ -119,16 +119,18 @@ recon unpark                                 # Restore previously parked session
 |---|---|
 | `j` / `k` | Navigate sessions |
 | `Enter` | Switch to selected tmux session |
+| `/` | Search / filter sessions by name |
 | `i` / `Tab` | Jump to next agent waiting for input |
 | `x` | Kill selected session |
 | `v` | Switch to Tamagotchi view |
-| `q` / `Esc` | Quit |
+| `q` / `Esc` | Quit (Esc clears filter first) |
 
 ### Keybindings — Tamagotchi View
 
 | Key | Action |
 |---|---|
 | `1`-`4` | Zoom into room |
+| `/` | Search / filter sessions by name |
 | `j` / `k` | Previous / next page |
 | `h` / `l` | Select agent (when zoomed) |
 | `Enter` | Switch to selected agent (when zoomed) |
