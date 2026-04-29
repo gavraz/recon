@@ -1191,13 +1191,18 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String, String)> {
         let window_index = parts[4];
         let pane_index = parts[5];
 
-        // Claude shows up as a version number (e.g. "2.1.76") or "claude" or "node"
+        // Claude shows up as a version number (e.g. "2.1.76") or "claude" or "node".
+        // On macOS, the npm-distributed binary's internal process name is "claude.exe"
+        // (a bundler convention, not a Windows artifact), so tmux reports that instead.
+        // If another binary name surfaces, consider switching to a `starts_with("claude")`
+        // match as a general case.
         let is_claude = command
             .chars()
             .next()
             .map(|c| c.is_ascii_digit())
             .unwrap_or(false)
             || command == "claude"
+            || command == "claude.exe"
             || command == "node";
 
         if is_claude {
