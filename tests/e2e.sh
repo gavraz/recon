@@ -92,12 +92,26 @@ tmux start-server 2>/dev/null || true
 create_session() {
     local name="$1" cwd="$2"
     mkdir -p "$cwd"
-    tmux new-session -d -s "$name" -c "$cwd" "$(which claude) $CLAUDE_FLAGS"
+    # Pre-authorize `sleep` only, so the working_state test's deterministic
+    # `sleep` runs instead of parking at a permission prompt under manual mode.
+    # Every other tool (e.g. Write in input_state) still prompts as normal.
+    tmux new-session -d -s "$name" -c "$cwd" "$(which claude) $CLAUDE_FLAGS --allowedTools 'Bash(sleep *)'"
 }
 
+# Submit a prompt to a Claude Code pane.
+#
+# The prompt text and the Enter keystroke are sent as two separate send-keys
+# calls with a short settle in between. Newer Claude TUIs treat a fast burst of
+# input as a bracketed paste and swallow an Enter that arrives in the same
+# instant, leaving the prompt sitting unsubmitted in the input box (which then
+# reads as New/Idle forever). Sending Enter on its own after the paste settles
+# submits reliably. $name may be a session name or a full pane target (e.g.
+# "sess:0.0").
 send_to_session() {
     local name="$1" text="$2"
-    tmux send-keys -t "$name" "$text" Enter
+    tmux send-keys -t "$name" "$text"
+    sleep 0.7
+    tmux send-keys -t "$name" Enter
 }
 
 get_state() {
@@ -170,7 +184,12 @@ if should_run "working_state"; then
 
     # Wait for the TUI to be fully ready for input
     sleep 3
-    send_to_session "$S_NEW" "wait 10 seconds and then run ls"
+    # A `sleep` gives a deterministic ~10s Working window, independent of model
+    # generation speed (a pure-generation prompt can finish between poll cycles
+    # and be missed). `sleep` is pre-authorized in create_session so it runs
+    # instead of parking at a permission prompt, and the session then settles to
+    # Idle for the idle_state test (which reuses this session).
+    send_to_session "$S_NEW" "Run this exact bash command and nothing else: sleep 10"
 
     if wait_for_state "$S_NEW" "Working" 15; then
         report pass "Working state detected for $S_NEW"
@@ -422,7 +441,7 @@ if should_run "multi_pane_status"; then
 
     # Send a long prompt to the Claude pane specifically (pane 0, not the active pane)
     sleep 3
-    tmux send-keys -t "$S_MULTI:0.0" "read all .txt files in this directory and write a combined summary to summary.txt" Enter
+    send_to_session "$S_MULTI:0.0" "read all .txt files in this directory and write a combined summary to summary.txt"
 
     if wait_for_state "$S_MULTI" "Working" 20; then
         report pass "Multi-pane status: Working detected despite bash pane being active"
@@ -470,7 +489,7 @@ if should_run "dual_pane_discovery"; then
     sleep 3
 
     # Do some work to get a session with tokens
-    tmux send-keys -t "$S_DUAL:0.0" "say exactly: dual pane test" Enter
+    send_to_session "$S_DUAL:0.0" "say exactly: dual pane test"
     wait_for_state "$S_DUAL" "Idle" 30 >/dev/null 2>&1 || true
 
     # Exit Claude — bash shell remains in pane 0
@@ -492,7 +511,7 @@ if should_run "dual_pane_discovery"; then
         tmux send-keys -t "$S_DUAL:0.0" "$CLAUDE_PATH $CLAUDE_FLAGS" Enter
         wait_for_state "$S_DUAL" "New" 15 >/dev/null 2>&1 || true
         sleep 3
-        tmux send-keys -t "$S_DUAL:0.0" "say exactly: fresh session" Enter
+        send_to_session "$S_DUAL:0.0" "say exactly: fresh session"
         wait_for_state "$S_DUAL" "Idle" 30 >/dev/null 2>&1 || true
 
         # Split window and start resumed Claude in pane 1 (same tmux session, same CWD)
