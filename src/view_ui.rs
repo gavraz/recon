@@ -681,6 +681,7 @@ mod tests {
             cwd: cwd.to_string(),
             relative_dir: None,
             tmux_session: None,
+            tmux_window: None,
             pane_target: None,
             model: None,
             effort: None,

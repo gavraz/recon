@@ -39,6 +39,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(vec![
         Cell::from(" # "),
         Cell::from("Session"),
+        Cell::from("Window"),
         Cell::from("Project"),
         Cell::from("Directory"),
         Cell::from("Status"),
@@ -63,6 +64,12 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
             let tmux_name = session
                 .tmux_session
                 .as_deref()
+                .unwrap_or("—");
+
+            let window_name = session
+                .tmux_window
+                .as_deref()
+                .filter(|w| !w.is_empty())
                 .unwrap_or("—");
 
             // Status: colored dot + label
@@ -120,6 +127,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
             let row = Row::new(vec![
                 Cell::from(num),
                 Cell::from(tmux_name.to_string()),
+                Cell::from(window_name.to_string()).style(Style::default().fg(Color::Magenta)),
                 project_cell,
                 dir_cell,
                 status_cell,
@@ -141,6 +149,7 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
     let widths = [
         Constraint::Length(4),   // #
         Constraint::Length(16),  // Session
+        Constraint::Length(16),  // Window
         Constraint::Min(20),    // Project (repo + branch)
         Constraint::Length(20), // Directory
         Constraint::Length(10), // Status

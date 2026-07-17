@@ -86,6 +86,11 @@ impl App {
                         .unwrap_or("")
                         .to_lowercase()
                         .contains(&query)
+                    || s.tmux_window
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
             })
             .map(|(i, _)| i)
             .collect()
@@ -429,6 +434,7 @@ impl App {
                     "room_id": s.room_id(),
                     "relative_dir": s.relative_dir,
                     "tmux_session": s.tmux_session,
+                    "tmux_window": s.tmux_window,
                     "pane_target": s.pane_target,
                     "model": s.model,
                     "model_display": s.model_display(),
