@@ -49,7 +49,7 @@ Process-to-session matching uses `~/.claude/sessions/{PID}.json` files written b
 - **app.rs** — state container, refresh loop, key handling, JSON serialization
 - **ui.rs** — ratatui rendering (table, status dots, color coding)
 - **tmux.rs** — session creation, switching, name sanitization
-- **model.rs** — model ID → display name/context window mapping
+- **model.rs** — model ID → display name/context window mapping. Constants are sourced from Anthropic's official models overview: https://platform.claude.com/docs/en/about-claude/models/overview.md (fetch the `.md` variant for an easy diff). When a new model ships or a context window is wrong, refresh from that page — see the module-level doc comment in `src/model.rs` for the last-synced table. Context-window size is per-model, not per-tier (e.g. Sonnet 4.6 is 1M but Sonnet 4.5 is 200k), so list each model explicitly.
 - **new_session.rs** — interactive two-field form for creating sessions
 
 ### Key caches
