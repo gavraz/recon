@@ -867,12 +867,55 @@ fn parse_jsonl(
 ///  2. Fall back to parsing `ps` args for sessions started outside of recon
 ///     (e.g. the user ran `claude --resume <id>` in a tmux session manually).
 fn find_jsonl_for_resumed_session(tmux_session: &str, pid: i32) -> Option<PathBuf> {
-    // Try tmux environment variable first (set by recon --resume)
-    let original_id = read_tmux_env(tmux_session, "RECON_RESUMED_FROM")
-        // Fall back to parsing ps args
-        .or_else(|| parse_resume_id_from_ps(pid))?;
+    // Try tmux environment variable first (set by recon --resume), then fall
+    // back to parsing `--resume <id>` from ps args.
+    read_tmux_env(tmux_session, "RECON_RESUMED_FROM")
+        .or_else(|| parse_resume_id_from_ps(pid))
+        .and_then(|id| find_jsonl_by_session_id(&id))
+        // Last resort: ask the OS which JSONL the process has open. This is the
+        // authoritative link and covers cases the two methods above miss —
+        // in-app /resume (no --resume in argv, no env var) and ps arg
+        // truncation — which otherwise misattribute the session as New (issue #22).
+        .or_else(|| find_jsonl_by_open_fd(pid))
+}
 
-    find_jsonl_by_session_id(&original_id)
+/// Find the JSONL a live claude process has open, by inspecting its file
+/// descriptors via lsof. A running claude keeps its session JSONL open for
+/// appending, so this is the most reliable process→JSONL link — independent
+/// of argv or resume bookkeeping.
+fn find_jsonl_by_open_fd(pid: i32) -> Option<PathBuf> {
+    let output = std::process::Command::new("lsof")
+        .args(["-p", &pid.to_string(), "-Fn"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let projects_marker = format!(
+        "{}{}",
+        std::path::MAIN_SEPARATOR,
+        Path::new(".claude").join("projects").display()
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut best: Option<(PathBuf, u64)> = None;
+    for line in stdout.lines() {
+        // lsof -Fn emits one field per line; name fields start with 'n'.
+        let name = match line.strip_prefix('n') {
+            Some(n) => n,
+            None => continue,
+        };
+        if !name.ends_with(".jsonl") || !name.contains(&projects_marker) {
+            continue;
+        }
+        let path = PathBuf::from(name);
+        let size = path.metadata().ok().map(|m| m.len()).unwrap_or(0);
+        if best.as_ref().map_or(true, |(_, s)| size > *s) {
+            best = Some((path, size));
+        }
+    }
+    best.map(|(p, _)| p)
 }
 
 /// Read a variable from a tmux session's environment table.
