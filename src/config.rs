@@ -118,7 +118,7 @@ pub fn load() -> Result<Config, String> {
     };
 
     let config: Config = toml::from_str(&content)
-        .map_err(|e| format!("Invalid config {}:\n{}", path.display(), e.message()))?;
+        .map_err(|e| format!("Invalid config {}:\n{e}", path.display()))?;
 
     if config.table.columns.is_empty() {
         return Err(format!(
@@ -141,7 +141,7 @@ pub fn available_columns_help() -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "~/.config/recon/config.toml".to_string());
     out.push_str(&format!(
-        "\nExample {example}:\n\n  [table]\n  columns = [\"session\", \"window\", \"project\", \"status\", \"context\", \"last_activity\"]\n\n  [table.widths]\n  window = 20\n"
+        "\nExample {example}:\n\n  [table]\n  columns = [\"session\", \"window\", \"project\", \"status\", \"context\", \"last_activity\"]\n\n  [table.widths]\n  window = 24\n"
     ));
     out
 }
@@ -181,5 +181,43 @@ mod tests {
     #[test]
     fn unknown_top_level_key_is_rejected() {
         assert!(toml::from_str::<Config>("nonsense = true").is_err());
+    }
+
+    #[test]
+    fn full_config_parses_columns_and_widths() {
+        let c: Config = toml::from_str(
+            "[table]\ncolumns = [\"status\", \"session\", \"window\"]\n\n[table.widths]\nwindow = 24\nsession = 12\n",
+        )
+        .unwrap();
+        assert_eq!(
+            c.table.columns,
+            vec![Column::Status, Column::Session, Column::Window]
+        );
+        assert_eq!(c.table.widths.get(&Column::Window), Some(&24));
+        assert_eq!(c.table.widths.get(&Column::Session), Some(&12));
+    }
+
+    #[test]
+    fn available_columns_help_lists_every_column() {
+        let help = available_columns_help();
+        for col in Column::ALL {
+            assert!(
+                help.contains(col.name()),
+                "help text is missing column {}",
+                col.name()
+            );
+        }
+    }
+
+    #[test]
+    fn column_name_and_header_are_populated_and_distinct() {
+        // Guards against forgetting a match arm when a variant is added:
+        // every column must have a non-empty snake_case name and header.
+        for col in Column::ALL {
+            assert!(!col.name().is_empty());
+            assert!(!col.header().is_empty());
+            // The config name is the snake_case form (no spaces).
+            assert!(!col.name().contains(' '));
+        }
     }
 }
