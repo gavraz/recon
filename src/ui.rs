@@ -63,7 +63,10 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
             if session.status == SessionStatus::Input {
                 row.style(Style::default().bg(Color::Rgb(50, 40, 0)))
             } else if display_idx == app.selected {
-                row.style(Style::default().bg(Color::DarkGray))
+                // Muted blue-gray, not DarkGray: the Directory text and the
+                // Project "::" separators are drawn in DarkGray, so a DarkGray
+                // highlight would render them invisible on the selected row.
+                row.style(Style::default().bg(Color::Rgb(45, 50, 70)))
             } else {
                 row
             }
