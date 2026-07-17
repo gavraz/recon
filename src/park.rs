@@ -17,7 +17,12 @@ struct ParkedSession {
 }
 
 fn park_file_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".local").join("state").join("recon").join("parked.json"))
+    dirs::home_dir().map(|h| {
+        h.join(".local")
+            .join("state")
+            .join("recon")
+            .join("parked.json")
+    })
 }
 
 pub fn park() {

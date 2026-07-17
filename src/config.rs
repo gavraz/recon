@@ -117,8 +117,8 @@ pub fn load() -> Result<Config, String> {
         Err(e) => return Err(format!("Failed to read config {}: {e}", path.display())),
     };
 
-    let config: Config = toml::from_str(&content)
-        .map_err(|e| format!("Invalid config {}:\n{e}", path.display()))?;
+    let config: Config =
+        toml::from_str(&content).map_err(|e| format!("Invalid config {}:\n{e}", path.display()))?;
 
     if config.table.columns.is_empty() {
         return Err(format!(

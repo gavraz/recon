@@ -35,7 +35,13 @@ fn main() -> io::Result<()> {
                 tmux::switch_to_pane(&name);
             }
         }
-        Some(Command::Launch { name, cwd, command, attach, tag }) => {
+        Some(Command::Launch {
+            name,
+            cwd,
+            command,
+            attach,
+            tag,
+        }) => {
             let (default_name, default_cwd) = tmux::default_new_session_info();
             let session_name = name.as_deref().unwrap_or(&default_name);
             let session_cwd = cwd.as_deref().unwrap_or(&default_cwd);
@@ -52,7 +58,11 @@ fn main() -> io::Result<()> {
                 }
             }
         }
-        Some(Command::Resume { id, name, no_attach }) => {
+        Some(Command::Resume {
+            id,
+            name,
+            no_attach,
+        }) => {
             if let Some(session_id) = id {
                 match tmux::resume_session(&session_id, name.as_deref()) {
                     Ok(sess) => {
@@ -85,7 +95,11 @@ fn main() -> io::Result<()> {
         Some(Command::Next) => {
             let mut app = App::new();
             app.refresh();
-            if let Some(session) = app.sessions.iter().find(|s| s.status == session::SessionStatus::Input) {
+            if let Some(session) = app
+                .sessions
+                .iter()
+                .find(|s| s.status == session::SessionStatus::Input)
+            {
                 if let Some(target) = &session.pane_target {
                     tmux::switch_to_pane(target);
                 }
@@ -102,7 +116,11 @@ fn main() -> io::Result<()> {
             } else {
                 match config::config_path() {
                     Some(p) => {
-                        let exists = if p.exists() { "" } else { " (not present — using defaults)" };
+                        let exists = if p.exists() {
+                            ""
+                        } else {
+                            " (not present — using defaults)"
+                        };
                         println!("Config file: {}{exists}", p.display());
                     }
                     None => println!("Could not determine config directory."),
@@ -173,11 +191,9 @@ fn run_app(
         if app.view_mode == ViewMode::View {
             view_ui::resolve_zoom(&mut app);
         }
-        terminal.draw(|f| {
-            match app.view_mode {
-                ViewMode::Table => ui::render(f, &app),
-                ViewMode::View => view_ui::render(f, &app),
-            }
+        terminal.draw(|f| match app.view_mode {
+            ViewMode::Table => ui::render(f, &app),
+            ViewMode::View => view_ui::render(f, &app),
         })?;
 
         app.advance_tick();

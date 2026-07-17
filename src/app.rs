@@ -20,8 +20,8 @@ pub struct App {
     pub tick: u64,
     pub view_page: usize,
     pub view_zoomed_room: Option<String>, // room name when zoomed in
-    pub view_zoom_index: Option<usize>,  // pending zoom request from key press
-    pub view_selected_agent: usize,      // selected agent within zoomed room
+    pub view_zoom_index: Option<usize>,   // pending zoom request from key press
+    pub view_selected_agent: usize,       // selected agent within zoomed room
     pub filter_active: bool,              // search input has focus
     pub filter_text: String,              // current search query
     pub filter_cursor: usize,             // cursor position in query
@@ -130,7 +130,11 @@ impl App {
     }
 
     fn jump_to_next_input(&mut self) {
-        if let Some(session) = self.sessions.iter().find(|s| s.status == session::SessionStatus::Input) {
+        if let Some(session) = self
+            .sessions
+            .iter()
+            .find(|s| s.status == session::SessionStatus::Input)
+        {
             if let Some(target) = &session.pane_target {
                 tmux::switch_to_pane(target);
                 self.should_quit = true;
@@ -300,11 +304,15 @@ impl App {
             }
             KeyCode::Backspace => {
                 if self.filter_cursor > 0 {
-                    let byte_pos = self.filter_text.char_indices()
+                    let byte_pos = self
+                        .filter_text
+                        .char_indices()
                         .nth(self.filter_cursor - 1)
                         .map(|(i, _)| i)
                         .unwrap_or(0);
-                    let next_byte = self.filter_text.char_indices()
+                    let next_byte = self
+                        .filter_text
+                        .char_indices()
                         .nth(self.filter_cursor)
                         .map(|(i, _)| i)
                         .unwrap_or(self.filter_text.len());
@@ -316,11 +324,15 @@ impl App {
             KeyCode::Delete => {
                 let char_count = self.filter_text.chars().count();
                 if self.filter_cursor < char_count {
-                    let byte_pos = self.filter_text.char_indices()
+                    let byte_pos = self
+                        .filter_text
+                        .char_indices()
                         .nth(self.filter_cursor)
                         .map(|(i, _)| i)
                         .unwrap_or(self.filter_text.len());
-                    let next_byte = self.filter_text.char_indices()
+                    let next_byte = self
+                        .filter_text
+                        .char_indices()
                         .nth(self.filter_cursor + 1)
                         .map(|(i, _)| i)
                         .unwrap_or(self.filter_text.len());
@@ -367,7 +379,9 @@ impl App {
                 self.jump_to_next_input();
             }
             KeyCode::Char(c) => {
-                let byte_pos = self.filter_text.char_indices()
+                let byte_pos = self
+                    .filter_text
+                    .char_indices()
                     .nth(self.filter_cursor)
                     .map(|(i, _)| i)
                     .unwrap_or(self.filter_text.len());
@@ -423,9 +437,9 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(_, s)| {
-                filters.iter().all(|(k, v)| {
-                    s.tags.get(*k).map_or(false, |tv| tv == v)
-                })
+                filters
+                    .iter()
+                    .all(|(k, v)| s.tags.get(*k).map_or(false, |tv| tv == v))
             })
             .map(|(i, s)| {
                 serde_json::json!({
@@ -460,5 +474,3 @@ impl App {
         .unwrap_or_else(|_| "{}".to_string())
     }
 }
-
-

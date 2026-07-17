@@ -106,7 +106,9 @@ fn find_resumable_sessions() -> Vec<ResumeEntry> {
 }
 
 fn get_live_session_ids() -> HashSet<String> {
-    crate::session::build_live_session_map_public().into_keys().collect()
+    crate::session::build_live_session_map_public()
+        .into_keys()
+        .collect()
 }
 
 /// Interactive TUI picker for resuming a past session.
@@ -124,8 +126,8 @@ pub fn run_resume_picker() -> io::Result<Option<(String, String)>> {
 
     loop {
         terminal.draw(|f| {
-            let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
-                .split(f.area());
+            let chunks =
+                Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(f.area());
 
             let block = Block::default()
                 .borders(Borders::ALL)
@@ -147,16 +149,25 @@ pub fn run_resume_picker() -> io::Result<Option<(String, String)>> {
                     Cell::from("Context"),
                     Cell::from("Last Active"),
                 ])
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+                .style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                );
 
                 // Compute max git column width from actual data
-                let git_col_width = entries.iter().map(|e| {
-                    let project = dir_name(&e.cwd);
-                    match &e.branch {
-                        Some(b) => project.len() + 2 + b.len(), // "project::branch"
-                        None => project.len(),
-                    }
-                }).max().unwrap_or(10) as u16 + 2; // +2 for padding
+                let git_col_width = entries
+                    .iter()
+                    .map(|e| {
+                        let project = dir_name(&e.cwd);
+                        match &e.branch {
+                            Some(b) => project.len() + 2 + b.len(), // "project::branch"
+                            None => project.len(),
+                        }
+                    })
+                    .max()
+                    .unwrap_or(10) as u16
+                    + 2; // +2 for padding
 
                 let rows: Vec<Row> = entries
                     .iter()
@@ -180,10 +191,16 @@ pub fn run_resume_picker() -> io::Result<Option<(String, String)>> {
                             .map(|m| model::display_name(m).to_string())
                             .unwrap_or_else(|| "—".to_string());
 
-                        let window = e.model.as_deref()
+                        let window = e
+                            .model
+                            .as_deref()
                             .map(model::context_window)
                             .unwrap_or(200_000);
-                        let tokens = format!("{}k / {}", e.tokens / 1000, crate::session::format_window(window));
+                        let tokens = format!(
+                            "{}k / {}",
+                            e.tokens / 1000,
+                            crate::session::format_window(window)
+                        );
                         let exited = format_relative(&e.last_active);
 
                         let row = Row::new(vec![
@@ -204,11 +221,11 @@ pub fn run_resume_picker() -> io::Result<Option<(String, String)>> {
                     .collect();
 
                 let widths = [
-                    Constraint::Length(4),              // #
-                    Constraint::Length(12),             // Session ID
-                    Constraint::Length(git_col_width),  // Git(Project::Branch)
-                    Constraint::Length(14),             // Model
-                    Constraint::Length(14),             // Context
+                    Constraint::Length(4),             // #
+                    Constraint::Length(12),            // Session ID
+                    Constraint::Length(git_col_width), // Git(Project::Branch)
+                    Constraint::Length(14),            // Model
+                    Constraint::Length(14),            // Context
                     Constraint::Min(12),               // Last Active
                 ];
 
@@ -306,10 +323,14 @@ struct JsonlSummary {
 /// Read model, branch, and total tokens from the last assistant entry in a JSONL file.
 /// Seeks to the tail of large files to avoid reading the entire file into memory.
 fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
-    use std::io::{BufReader, Seek, SeekFrom};
     use crate::session::read_line_capped;
+    use std::io::{BufReader, Seek, SeekFrom};
 
-    let empty = JsonlSummary { model: None, branch: None, tokens: 0 };
+    let empty = JsonlSummary {
+        model: None,
+        branch: None,
+        tokens: 0,
+    };
     let file = match fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return empty,
@@ -358,7 +379,10 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
         // Pick up gitBranch from any recent entry
         if branch.is_none() && line.contains("\"gitBranch\"") {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                branch = v.get("gitBranch").and_then(|b| b.as_str()).map(|s| s.to_string());
+                branch = v
+                    .get("gitBranch")
+                    .and_then(|b| b.as_str())
+                    .map(|s| s.to_string());
             }
         }
 
@@ -366,14 +390,33 @@ fn read_jsonl_summary(path: &std::path::Path) -> JsonlSummary {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
                 if let Some(msg) = v.get("message") {
                     if model.is_none() {
-                        model = msg.get("model").and_then(|m| m.as_str()).map(|s| s.to_string());
+                        model = msg
+                            .get("model")
+                            .and_then(|m| m.as_str())
+                            .map(|s| s.to_string());
                     }
                     if input_tokens == 0 {
                         if let Some(usage) = msg.get("usage") {
-                            input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0)
-                                .saturating_add(usage.get("cache_creation_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0))
-                                .saturating_add(usage.get("cache_read_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0));
-                            output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+                            input_tokens = usage
+                                .get("input_tokens")
+                                .and_then(|t| t.as_u64())
+                                .unwrap_or(0)
+                                .saturating_add(
+                                    usage
+                                        .get("cache_creation_input_tokens")
+                                        .and_then(|t| t.as_u64())
+                                        .unwrap_or(0),
+                                )
+                                .saturating_add(
+                                    usage
+                                        .get("cache_read_input_tokens")
+                                        .and_then(|t| t.as_u64())
+                                        .unwrap_or(0),
+                                );
+                            output_tokens = usage
+                                .get("output_tokens")
+                                .and_then(|t| t.as_u64())
+                                .unwrap_or(0);
                         }
                     }
                 }

@@ -220,7 +220,12 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             // started in one CWD then moved to a worktree). Prefer the larger file.
             if matched_session_ids.contains(&session_id) {
                 if let Some(existing) = sessions.iter_mut().find(|s| s.session_id == session_id) {
-                    let existing_size = existing.jsonl_path.metadata().ok().map(|m| m.len()).unwrap_or(0);
+                    let existing_size = existing
+                        .jsonl_path
+                        .metadata()
+                        .ok()
+                        .map(|m| m.len())
+                        .unwrap_or(0);
                     let new_size = path.metadata().ok().map(|m| m.len()).unwrap_or(0);
                     if new_size > existing_size {
                         let prev = prev_sessions.get(&session_id);
@@ -233,7 +238,8 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                             prev.and_then(|s| s.effort.clone()),
                             prev.and_then(|s| s.last_activity.clone()),
                         );
-                        let cwd = info.cwd
+                        let cwd = info
+                            .cwd
                             .or_else(|| prev.map(|s| s.cwd.clone()))
                             .unwrap_or_else(|| decode_project_path(&project_dir));
                         let (project_name, relative_dir, branch) = git_project_info(&cwd);
@@ -316,10 +322,8 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
     // hide the second instance. PID is the unique identifier per Claude process,
     // so each instance gets its own stable entry in the table — even if the TUI
     // shows duplicate session names.
-    let known_pids: std::collections::HashSet<i32> = sessions
-        .iter()
-        .filter_map(|s| s.pid)
-        .collect();
+    let known_pids: std::collections::HashSet<i32> =
+        sessions.iter().filter_map(|s| s.pid).collect();
 
     for (session_id_key, live) in &live_map {
         if known_pids.contains(&live.pid) {
@@ -535,7 +539,11 @@ fn git_project_info(cwd: &str) -> (String, Option<String>, Option<String>) {
         let cache = GIT_CACHE.lock().unwrap();
         if let Some(info) = cache.as_ref().and_then(|c| c.get(cwd)) {
             if info.fetched_at.elapsed() < GIT_CACHE_TTL {
-                return (info.repo_name.clone(), info.relative_dir.clone(), info.branch.clone());
+                return (
+                    info.repo_name.clone(),
+                    info.relative_dir.clone(),
+                    info.branch.clone(),
+                );
             }
         }
     }
@@ -591,7 +599,9 @@ fn fetch_canonical_repo_name(cwd: &str) -> Option<String> {
     } else {
         &resolved
     };
-    repo_root.file_name().map(|n| n.to_string_lossy().to_string())
+    repo_root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
 }
 
 fn fetch_git_branch(cwd: &str) -> Option<String> {
@@ -655,8 +665,7 @@ fn decode_project_path(project_dir: &Path) -> String {
     // Convert back: leading - becomes /, internal - becomes /
     // This is lossy (can't distinguish original - from / or . or _) but good enough
     if name.starts_with('-') {
-        name.replacen('-', "/", 1)
-            .replace('-', "/")
+        name.replacen('-', "/", 1).replace('-', "/")
     } else {
         name
     }
@@ -817,7 +826,8 @@ fn parse_jsonl(
                 // Extract effort if present ("with <effort> effort")
                 let (model_part, new_effort) = if let Some(wp) = remainder.find("with ") {
                     let after_with = &remainder[wp + 5..];
-                    let eff = after_with.find(" effort")
+                    let eff = after_with
+                        .find(" effort")
                         .map(|end| after_with[..end].trim().to_string())
                         .filter(|s| !s.is_empty());
                     (&remainder[..wp], eff)
@@ -938,7 +948,10 @@ fn read_tmux_tags(session_name: &str) -> HashMap<String, String> {
     read_tmux_env(session_name, "RECON_TAGS")
         .map(|val| {
             val.split(',')
-                .filter_map(|tag| tag.split_once(':').map(|(k, v)| (k.to_string(), v.to_string())))
+                .filter_map(|tag| {
+                    tag.split_once(':')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -970,17 +983,23 @@ fn strip_ansi(s: &str) -> String {
         if c == '\x1b' {
             // Raw ESC byte: skip until 'm'
             for next in chars.by_ref() {
-                if next == 'm' { break; }
+                if next == 'm' {
+                    break;
+                }
             }
         } else if c == '\\' && chars.peek() == Some(&'u') {
             // Check for JSON-escaped \\u001b
             let rest: String = chars.clone().take(5).collect();
             if rest.starts_with("u001b") || rest.starts_with("u001B") {
                 // Consume "u001b" (5 chars)
-                for _ in 0..5 { chars.next(); }
+                for _ in 0..5 {
+                    chars.next();
+                }
                 // Skip the ANSI parameter sequence until 'm'
                 for next in chars.by_ref() {
-                    if next == 'm' { break; }
+                    if next == 'm' {
+                        break;
+                    }
                 }
             } else {
                 result.push(c);
@@ -1072,7 +1091,12 @@ pub fn find_session_cwd(session_id: &str) -> Option<String> {
 /// - Working: JSONL modified in last 5s
 /// - Input: last activity within 10 minutes (active conversation, waiting for user)
 /// - Idle: last activity older than 10 minutes
-fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, pane_target: Option<&str>) -> SessionStatus {
+fn determine_status(
+    _path: &Path,
+    input_tokens: u64,
+    output_tokens: u64,
+    pane_target: Option<&str>,
+) -> SessionStatus {
     // tmux pane content is the source of truth for active sessions
     if let Some(target) = pane_target {
         let pane = pane_status(target);
@@ -1129,7 +1153,8 @@ fn pane_status(pane_target: &str) -> SessionStatus {
         }
 
         // Input: selection-style permission prompts ("❯ N.")
-        if let Some(pos) = trimmed.find('\u{276F}') { // ❯
+        if let Some(pos) = trimmed.find('\u{276F}') {
+            // ❯
             let after = trimmed[pos + '\u{276F}'.len_utf8()..].trim_start();
             if after.starts_with(|c: char| c.is_ascii_digit()) {
                 return SessionStatus::Input;
@@ -1149,10 +1174,12 @@ fn pane_status(pane_target: &str) -> SessionStatus {
 /// Covers dingbat spinners (✽✢✳✶✻ etc.), record symbol (⏺),
 /// and middle dot (·) used for progress lines.
 fn is_spinner(c: char) -> bool {
-    matches!(c,
-        '\u{2720}'..='\u{2767}' | // Dingbats: ✽✢✳✶✻✺✴✵ etc.
+    matches!(
+        c,
+        '\u{2720}'
+            ..='\u{2767}' | // Dingbats: ✽✢✳✶✻✺✴✵ etc.
         '\u{23FA}'              | // ⏺ (record)
-        '\u{00B7}'                // · (middle dot, used for progress)
+        '\u{00B7}' // · (middle dot, used for progress)
     )
 }
 
@@ -1185,10 +1212,7 @@ fn read_pid_session_map() -> HashMap<i32, SessionFileInfo> {
                         v.get("pid").and_then(|p| p.as_i64()),
                         v.get("sessionId").and_then(|s| s.as_str()),
                     ) {
-                        let started_at = v
-                            .get("startedAt")
-                            .and_then(|s| s.as_u64())
-                            .unwrap_or(0);
+                        let started_at = v.get("startedAt").and_then(|s| s.as_u64()).unwrap_or(0);
                         map.insert(
                             pid as i32,
                             SessionFileInfo {
@@ -1403,4 +1427,3 @@ mod tests {
         assert!(validate_cwd("/tmp"));
     }
 }
-

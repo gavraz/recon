@@ -22,7 +22,12 @@ pub fn switch_to_pane(target: &str) {
 /// and passes the parts as the binary + args to tmux (no shell wrapper, so aliases
 /// won't resolve — use full paths).
 /// Returns the session name on success.
-pub fn create_session(name: &str, cwd: &str, command: Option<&str>, tags: &[String]) -> Result<String, String> {
+pub fn create_session(
+    name: &str,
+    cwd: &str,
+    command: Option<&str>,
+    tags: &[String],
+) -> Result<String, String> {
     if !session::validate_cwd(cwd) {
         return Err(format!("Invalid working directory: {cwd}"));
     }
@@ -84,7 +89,11 @@ pub fn resume_session(session_id: &str, name: Option<&str>) -> Result<String, St
     // Validate before use — fall back to current dir if the JSONL cwd is invalid.
     let cwd = session::find_session_cwd(session_id)
         .filter(|c| session::validate_cwd(c))
-        .or_else(|| std::env::current_dir().map(|p| p.to_string_lossy().to_string()).ok())
+        .or_else(|| {
+            std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .ok()
+        })
         .unwrap_or_else(|| ".".to_string());
 
     let base_name = sanitize_session_name(&tmux_name);
@@ -157,7 +166,11 @@ fn session_exists(name: &str) -> bool {
 fn which_claude() -> Option<String> {
     let output = Command::new("which").arg("claude").output().ok()?;
     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() { None } else { Some(path) }
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
 }
 
 /// Kill a tmux session by name.
@@ -175,7 +188,13 @@ pub fn kill_session(name: &str) -> bool {
 fn sanitize_session_name(name: &str) -> String {
     let sanitized: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
 
     let trimmed = sanitized.trim_start_matches('-');

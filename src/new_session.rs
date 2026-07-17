@@ -2,11 +2,11 @@ use std::io;
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::{
-    Frame,
     layout::{Constraint, Layout},
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
+    Frame,
 };
 
 use crate::tmux;
@@ -87,30 +87,26 @@ impl NewSessionForm {
                     Err(_) => self.result = Some(String::new()),
                 }
             }
-            KeyCode::Tab | KeyCode::Down => {
-                match self.active {
-                    Field::Name => {
-                        self.active = Field::Cwd;
-                        self.cursor_pos = self.cwd.len();
-                    }
-                    Field::Cwd => {
-                        self.active = Field::Name;
-                        self.cursor_pos = self.name.len();
-                    }
+            KeyCode::Tab | KeyCode::Down => match self.active {
+                Field::Name => {
+                    self.active = Field::Cwd;
+                    self.cursor_pos = self.cwd.len();
                 }
-            }
-            KeyCode::BackTab | KeyCode::Up => {
-                match self.active {
-                    Field::Name => {
-                        self.active = Field::Cwd;
-                        self.cursor_pos = self.cwd.len();
-                    }
-                    Field::Cwd => {
-                        self.active = Field::Name;
-                        self.cursor_pos = self.name.len();
-                    }
+                Field::Cwd => {
+                    self.active = Field::Name;
+                    self.cursor_pos = self.name.len();
                 }
-            }
+            },
+            KeyCode::BackTab | KeyCode::Up => match self.active {
+                Field::Name => {
+                    self.active = Field::Cwd;
+                    self.cursor_pos = self.cwd.len();
+                }
+                Field::Cwd => {
+                    self.active = Field::Name;
+                    self.cursor_pos = self.name.len();
+                }
+            },
             KeyCode::Backspace => {
                 let pos = self.cursor_pos;
                 if pos > 0 {

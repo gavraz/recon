@@ -1,9 +1,9 @@
 use ratatui::{
-    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Row, Table, Paragraph},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    Frame,
 };
 
 use crate::app::App;
@@ -20,11 +20,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         ])
         .split(frame.area())
     } else {
-        Layout::vertical([
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .split(frame.area())
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(frame.area())
     };
 
     render_table(frame, app, chunks[0]);
@@ -76,13 +72,11 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
     let mut widths = vec![Constraint::Length(4)]; // #
     widths.extend(columns.iter().map(|c| column_constraint(*c, app)));
 
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" recon — Claude Code Sessions "),
-        );
+    let table = Table::new(rows, widths).header(header).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" recon — Claude Code Sessions "),
+    );
 
     frame.render_widget(table, area);
 }

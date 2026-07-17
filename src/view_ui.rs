@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Padding, Paragraph},
+    Frame,
 };
 
 use crate::app::App;
@@ -30,157 +30,157 @@ type Palette = &'static [(u8, u8, u8)]; // index 0 unused (transparent)
 
 // Egg palette: 1=cream shell, 2=shadow, 3=green spots
 const PAL_EGG: &[(u8, u8, u8)] = &[
-    (0, 0, 0),         // 0: unused
-    (255, 250, 230),    // 1: cream shell
-    (220, 200, 170),    // 2: shell shadow
-    (180, 220, 180),    // 3: green spots
+    (0, 0, 0),       // 0: unused
+    (255, 250, 230), // 1: cream shell
+    (220, 200, 170), // 2: shell shadow
+    (180, 220, 180), // 3: green spots
 ];
 
 const SPRITE_EGG: [Sprite; 1] = [[
-    [0,0,0,0,1,1,1,0,0,0],
-    [0,0,0,1,1,1,1,1,0,0],
-    [0,0,1,1,1,3,1,1,1,0],
-    [0,0,1,1,1,1,1,1,1,0],
-    [0,0,1,3,1,1,1,3,1,0],
-    [0,0,1,1,1,1,1,1,1,0],
-    [0,0,1,1,1,1,1,1,1,0],
-    [0,0,0,1,2,1,2,1,0,0],
-    [0,0,0,0,1,1,1,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0],
+    [0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
+    [0, 0, 0, 1, 1, 1, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 3, 1, 1, 1, 0],
+    [0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 0, 1, 3, 1, 1, 1, 3, 1, 0],
+    [0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 0, 0, 1, 2, 1, 2, 1, 0, 0],
+    [0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]];
 
 // Working palette: 1=green body, 2=dark green, 3=eyes, 4=eye highlight,
 //                  5=blush, 6=mouth, 7=feet, 8=sparkle
 const PAL_WORKING: &[(u8, u8, u8)] = &[
     (0, 0, 0),
-    (120, 220, 120),    // 1: green body
-    (80, 180, 80),      // 2: darker green
-    (40, 40, 40),       // 3: eyes
-    (255, 255, 255),    // 4: eye highlight
-    (255, 150, 150),    // 5: cheeks
-    (200, 100, 80),     // 6: mouth
-    (100, 200, 100),    // 7: feet
-    (255, 220, 60),     // 8: sparkle
+    (120, 220, 120), // 1: green body
+    (80, 180, 80),   // 2: darker green
+    (40, 40, 40),    // 3: eyes
+    (255, 255, 255), // 4: eye highlight
+    (255, 150, 150), // 5: cheeks
+    (200, 100, 80),  // 6: mouth
+    (100, 200, 100), // 7: feet
+    (255, 220, 60),  // 8: sparkle
 ];
 
 const SPRITE_WORKING: [Sprite; 3] = [
     // Frame 0: happy, sparkles top
     [
-        [0,0,0,8,1,1,1,8,0,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,1,3,4,1,1,3,4,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,5,1,1,6,6,1,1,5,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,0,0,7,0,0,7,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0],
+        [0, 0, 0, 8, 1, 1, 1, 8, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 3, 4, 1, 1, 3, 4, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 5, 1, 1, 6, 6, 1, 1, 5, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 7, 0, 0, 7, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ],
     // Frame 1: squinting
     [
-        [0,0,0,1,1,1,1,0,0,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,1,1,3,1,1,3,1,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,5,1,6,1,1,6,1,5,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,0,7,0,0,0,0,7,0,0],
-        [0,0,0,0,0,0,0,0,0,0],
+        [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 1, 3, 1, 1, 3, 1, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 5, 1, 6, 1, 1, 6, 1, 5, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 7, 0, 0, 0, 0, 7, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ],
     // Frame 2: arms out, sparkles
     [
-        [0,0,8,1,1,1,1,8,0,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,1,4,3,1,1,4,3,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,5,1,1,6,6,1,1,5,0],
-        [8,1,1,1,1,1,1,1,1,8],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,0,0,7,0,0,7,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0],
+        [0, 0, 8, 1, 1, 1, 1, 8, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 4, 3, 1, 1, 4, 3, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 5, 1, 1, 6, 6, 1, 1, 5, 0],
+        [8, 1, 1, 1, 1, 1, 1, 1, 1, 8],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 7, 0, 0, 7, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ],
 ];
 
 // Idle palette: 1=blue-grey body, 2=darker, 3=closed eyes, 4=highlight, 5=feet, 6=Zzz
 const PAL_IDLE: &[(u8, u8, u8)] = &[
     (0, 0, 0),
-    (140, 160, 200),    // 1: blue-grey body
-    (110, 130, 170),    // 2: darker
-    (60, 60, 80),       // 3: closed eyes
-    (180, 190, 220),    // 4: highlight
-    (120, 140, 180),    // 5: feet
-    (200, 200, 255),    // 6: Zzz
+    (140, 160, 200), // 1: blue-grey body
+    (110, 130, 170), // 2: darker
+    (60, 60, 80),    // 3: closed eyes
+    (180, 190, 220), // 4: highlight
+    (120, 140, 180), // 5: feet
+    (200, 200, 255), // 6: Zzz
 ];
 
 const SPRITE_IDLE: [Sprite; 1] = [[
-    [0,0,0,1,1,1,1,0,0,0],
-    [0,0,1,1,1,1,1,1,0,6],
-    [0,1,1,1,1,1,1,1,1,0],
-    [0,1,3,3,1,1,3,3,1,6],
-    [0,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,0],
-    [0,0,1,1,1,1,1,1,0,0],
-    [0,0,0,5,0,0,5,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0],
+    [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+    [0, 0, 1, 1, 1, 1, 1, 1, 0, 6],
+    [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 1, 3, 3, 1, 1, 3, 3, 1, 6],
+    [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+    [0, 0, 0, 5, 0, 0, 5, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]];
 
 // Input (angry) palette: 1=orange body, 2=darker, 3=pupils, 4=eye whites,
 //                        5=angry red, 6=feet, 7=flush
 const PAL_INPUT: &[(u8, u8, u8)] = &[
     (0, 0, 0),
-    (255, 180, 60),     // 1: orange body
-    (220, 150, 40),     // 2: darker
-    (40, 40, 40),       // 3: pupils
-    (255, 255, 255),    // 4: eye whites
-    (255, 60, 60),      // 5: angry red (brows, mouth)
-    (200, 140, 40),     // 6: feet
-    (255, 100, 100),    // 7: flush/anger
+    (255, 180, 60),  // 1: orange body
+    (220, 150, 40),  // 2: darker
+    (40, 40, 40),    // 3: pupils
+    (255, 255, 255), // 4: eye whites
+    (255, 60, 60),   // 5: angry red (brows, mouth)
+    (200, 140, 40),  // 6: feet
+    (255, 100, 100), // 7: flush/anger
 ];
 
 const SPRITE_INPUT: [Sprite; 3] = [
     // Frame 0: angry brows down
     [
-        [0,0,0,1,1,1,1,0,0,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,1,5,1,1,1,1,5,1,0],
-        [0,1,1,4,3,3,4,1,1,0],
-        [0,7,1,1,1,1,1,1,7,0],
-        [0,1,1,5,5,5,5,1,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,0,0,6,0,0,6,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0],
+        [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 5, 1, 1, 1, 1, 5, 1, 0],
+        [0, 1, 1, 4, 3, 3, 4, 1, 1, 0],
+        [0, 7, 1, 1, 1, 1, 1, 1, 7, 0],
+        [0, 1, 1, 5, 5, 5, 5, 1, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 6, 0, 0, 6, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ],
     // Frame 1: brows shifted
     [
-        [0,0,0,1,1,1,1,0,0,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,1,1,5,1,1,5,1,1,0],
-        [0,1,1,4,3,3,4,1,1,0],
-        [0,7,1,1,1,1,1,1,7,0],
-        [0,1,1,1,5,5,1,1,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,0,6,0,0,0,0,6,0,0],
-        [0,0,0,0,0,0,0,0,0,0],
+        [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 5, 1, 1, 5, 1, 1, 0],
+        [0, 1, 1, 4, 3, 3, 4, 1, 1, 0],
+        [0, 7, 1, 1, 1, 1, 1, 1, 7, 0],
+        [0, 1, 1, 1, 5, 5, 1, 1, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 6, 0, 0, 0, 0, 6, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ],
     // Frame 2: wider stance
     [
-        [0,0,0,1,1,1,1,0,0,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,1,5,1,1,1,1,5,1,0],
-        [0,1,1,3,4,4,3,1,1,0],
-        [0,1,7,1,1,1,1,7,1,0],
-        [0,1,5,1,5,5,1,5,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,1,1,1,1,1,1,0,0],
-        [0,0,0,6,0,0,6,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0],
+        [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 5, 1, 1, 1, 1, 5, 1, 0],
+        [0, 1, 1, 3, 4, 4, 3, 1, 1, 0],
+        [0, 1, 7, 1, 1, 1, 1, 7, 1, 0],
+        [0, 1, 5, 1, 5, 5, 1, 5, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 6, 0, 0, 6, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ],
 ];
 
@@ -388,8 +388,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         ])
         .split(frame.area())
     } else {
-        Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
-            .split(frame.area())
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(frame.area())
     };
 
     render_rooms(frame, app, chunks[0]);
@@ -439,18 +438,13 @@ fn render_rooms(frame: &mut Frame, app: &App, area: Rect) {
     let total_pages = (rooms.len() + ROOMS_PER_PAGE - 1) / ROOMS_PER_PAGE;
     let page = app.view_page.min(total_pages.saturating_sub(1));
     let page_start = page * ROOMS_PER_PAGE;
-    let page_rooms: Vec<&Room> = rooms
-        .iter()
-        .skip(page_start)
-        .take(ROOMS_PER_PAGE)
-        .collect();
+    let page_rooms: Vec<&Room> = rooms.iter().skip(page_start).take(ROOMS_PER_PAGE).collect();
 
-    let v_chunks = Layout::vertical([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
-        .split(area);
-    let top_h = Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
-        .split(v_chunks[0]);
-    let bot_h = Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
-        .split(v_chunks[1]);
+    let v_chunks = Layout::vertical([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).split(area);
+    let top_h =
+        Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).split(v_chunks[0]);
+    let bot_h =
+        Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).split(v_chunks[1]);
     let cells = [top_h[0], top_h[1], bot_h[0], bot_h[1]];
 
     for (i, cell) in cells.iter().enumerate() {
@@ -465,9 +459,20 @@ fn render_rooms(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_room(frame: &mut Frame, app: &App, room: &Room, area: Rect, slot_num: Option<usize>, selected_agent: Option<usize>) {
+fn render_room(
+    frame: &mut Frame,
+    app: &App,
+    room: &Room,
+    area: Rect,
+    slot_num: Option<usize>,
+    selected_agent: Option<usize>,
+) {
     let border_color = if room.has_input {
-        if app.tick % 2 == 0 { Color::Yellow } else { Color::White }
+        if app.tick % 2 == 0 {
+            Color::Yellow
+        } else {
+            Color::White
+        }
     } else {
         Color::DarkGray
     };
@@ -529,12 +534,24 @@ fn render_room(frame: &mut Frame, app: &App, room: &Room, area: Rect, slot_num: 
             }
             let flat_idx = row_idx * chars_per_row + col_idx;
             let is_selected = selected_agent == Some(flat_idx);
-            render_character(frame, &app.sessions[session_idx], h_chunks[col_idx], app.tick, is_selected);
+            render_character(
+                frame,
+                &app.sessions[session_idx],
+                h_chunks[col_idx],
+                app.tick,
+                is_selected,
+            );
         }
     }
 }
 
-fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64, is_selected: bool) {
+fn render_character(
+    frame: &mut Frame,
+    session: &Session,
+    area: Rect,
+    tick: u64,
+    is_selected: bool,
+) {
     if area.height < 3 || area.width < 4 {
         return;
     }
@@ -545,15 +562,18 @@ fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64,
     let ratio = session.token_ratio();
 
     let color = if session.status == SessionStatus::Input {
-        if tick % 2 == 0 { Color::Yellow } else { Color::White }
+        if tick % 2 == 0 {
+            Color::Yellow
+        } else {
+            Color::White
+        }
     } else {
         status_color(&session.status)
     };
 
     // Selection highlight background
     if is_selected {
-        let bg = Block::default()
-            .style(Style::default().bg(Color::Rgb(40, 40, 60)));
+        let bg = Block::default().style(Style::default().bg(Color::Rgb(40, 40, 60)));
         frame.render_widget(bg, area);
     }
 
@@ -566,7 +586,9 @@ fn render_character(frame: &mut Frame, session: &Session, area: Rect, tick: u64,
     // Session name
     let name = session.tmux_session.as_deref().unwrap_or("???");
     let name_style = if is_selected {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::White)
     };
@@ -752,8 +774,16 @@ mod tests {
     #[test]
     fn input_rooms_also_sorted_by_activity() {
         let sessions = vec![
-            make_session("/old-input", SessionStatus::Input, Some("2026-03-16T08:00:00Z")),
-            make_session("/new-input", SessionStatus::Input, Some("2026-03-16T12:00:00Z")),
+            make_session(
+                "/old-input",
+                SessionStatus::Input,
+                Some("2026-03-16T08:00:00Z"),
+            ),
+            make_session(
+                "/new-input",
+                SessionStatus::Input,
+                Some("2026-03-16T12:00:00Z"),
+            ),
         ];
         let all: Vec<usize> = (0..sessions.len()).collect();
         let rooms = group_into_rooms(&sessions, &all);
@@ -764,9 +794,17 @@ mod tests {
     #[test]
     fn worktrees_share_room_by_project_name() {
         // Two sessions with different CWDs but same project_name should be in the same room
-        let mut s1 = make_session("/repos/line5", SessionStatus::Idle, Some("2026-03-16T10:00:00Z"));
+        let mut s1 = make_session(
+            "/repos/line5",
+            SessionStatus::Idle,
+            Some("2026-03-16T10:00:00Z"),
+        );
         s1.project_name = "line5".to_string();
-        let mut s2 = make_session("/worktrees/line5-feat", SessionStatus::Working, Some("2026-03-16T11:00:00Z"));
+        let mut s2 = make_session(
+            "/worktrees/line5-feat",
+            SessionStatus::Working,
+            Some("2026-03-16T11:00:00Z"),
+        );
         s2.project_name = "line5".to_string();
         let sessions = [s1, s2];
         let all: Vec<usize> = (0..sessions.len()).collect();
@@ -779,9 +817,17 @@ mod tests {
     #[test]
     fn subproject_gets_separate_room() {
         // Root and subproject should be different rooms
-        let mut s1 = make_session("/repos/line5", SessionStatus::Idle, Some("2026-03-16T10:00:00Z"));
+        let mut s1 = make_session(
+            "/repos/line5",
+            SessionStatus::Idle,
+            Some("2026-03-16T10:00:00Z"),
+        );
         s1.project_name = "line5".to_string();
-        let mut s2 = make_session("/repos/line5/tools/solo", SessionStatus::Idle, Some("2026-03-16T11:00:00Z"));
+        let mut s2 = make_session(
+            "/repos/line5/tools/solo",
+            SessionStatus::Idle,
+            Some("2026-03-16T11:00:00Z"),
+        );
         s2.project_name = "line5".to_string();
         s2.relative_dir = Some("tools/solo".to_string());
         let sessions = [s1, s2];
@@ -793,16 +839,28 @@ mod tests {
     #[test]
     fn mixed_input_and_activity_sorting() {
         let sessions = vec![
-            make_session("/idle-recent", SessionStatus::Idle, Some("2026-03-16T15:00:00Z")),
-            make_session("/input-old", SessionStatus::Input, Some("2026-03-16T08:00:00Z")),
+            make_session(
+                "/idle-recent",
+                SessionStatus::Idle,
+                Some("2026-03-16T15:00:00Z"),
+            ),
+            make_session(
+                "/input-old",
+                SessionStatus::Input,
+                Some("2026-03-16T08:00:00Z"),
+            ),
             make_session("/egg", SessionStatus::New, None),
-            make_session("/idle-old", SessionStatus::Idle, Some("2026-03-16T09:00:00Z")),
+            make_session(
+                "/idle-old",
+                SessionStatus::Idle,
+                Some("2026-03-16T09:00:00Z"),
+            ),
         ];
         let all: Vec<usize> = (0..sessions.len()).collect();
         let rooms = group_into_rooms(&sessions, &all);
-        assert_eq!(rooms[0].name, "/input-old");   // input first regardless of activity
-        assert_eq!(rooms[1].name, "/idle-recent");  // most recent activity
-        assert_eq!(rooms[2].name, "/idle-old");     // older activity
-        assert_eq!(rooms[3].name, "/egg");           // no activity last
+        assert_eq!(rooms[0].name, "/input-old"); // input first regardless of activity
+        assert_eq!(rooms[1].name, "/idle-recent"); // most recent activity
+        assert_eq!(rooms[2].name, "/idle-old"); // older activity
+        assert_eq!(rooms[3].name, "/egg"); // no activity last
     }
 }
