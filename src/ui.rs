@@ -7,7 +7,8 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::session::SessionStatus;
+use crate::config::Column;
+use crate::session::{Session, SessionStatus};
 
 pub fn render(frame: &mut Frame, app: &App) {
     let show_search = app.filter_active || !app.filter_text.is_empty();
@@ -36,18 +37,12 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 fn render_table(frame: &mut Frame, app: &App, area: Rect) {
-    let header = Row::new(vec![
-        Cell::from(" # "),
-        Cell::from("Session"),
-        Cell::from("Window"),
-        Cell::from("Project"),
-        Cell::from("Directory"),
-        Cell::from("Status"),
-        Cell::from("Model"),
-        Cell::from("Context"),
-        Cell::from("Last Activity"),
-    ])
-    .style(
+    let columns = &app.config.table.columns;
+
+    // The `#` index column is always shown first and is not configurable.
+    let mut header_cells = vec![Cell::from(" # ")];
+    header_cells.extend(columns.iter().map(|c| Cell::from(c.header())));
+    let header = Row::new(header_cells).style(
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
@@ -61,80 +56,9 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
             let session = &app.sessions[real_idx];
             let num = format!(" {} ", real_idx + 1);
 
-            let tmux_name = session
-                .tmux_session
-                .as_deref()
-                .unwrap_or("—");
-
-            let window_name = session
-                .tmux_window
-                .as_deref()
-                .filter(|w| !w.is_empty())
-                .unwrap_or("—");
-
-            // Status: colored dot + label
-            let (status_dot, status_label, status_color) = match session.status {
-                SessionStatus::New => ("●", "New", Color::Blue),
-                SessionStatus::Working => ("●", "Working", Color::Green),
-                SessionStatus::Idle => ("●", "Idle", Color::DarkGray),
-                SessionStatus::Input => ("●", "Input", Color::Yellow),
-            };
-
-            let token_ratio = session.token_ratio();
-            let token_style = if token_ratio > 0.9 {
-                Style::default().fg(Color::Red)
-            } else if token_ratio > 0.75 {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default()
-            };
-
-            let activity = session
-                .last_activity
-                .as_deref()
-                .map(format_timestamp)
-                .unwrap_or_else(|| "—".to_string());
-
-            let cwd_display = shorten_home(&session.cwd);
-
-            // Project: repo::relative_dir::branch
-            let project_cell = {
-                let mut spans = vec![Span::raw(&session.project_name)];
-                if let Some(dir) = &session.relative_dir {
-                    spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled(dir.clone(), Style::default().fg(Color::Cyan)));
-                }
-                if let Some(b) = &session.branch {
-                    spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled(b, Style::default().fg(Color::Green)));
-                }
-                Cell::from(Line::from(spans))
-            };
-
-            // Status: colored dot + label
-            let status_cell = Cell::from(Line::from(vec![
-                Span::styled(status_dot, Style::default().fg(status_color)),
-                Span::styled(
-                    format!(" {status_label}"),
-                    Style::default().fg(status_color),
-                ),
-            ]));
-
-            // Directory: dimmed
-            let dir_cell =
-                Cell::from(cwd_display).style(Style::default().fg(Color::DarkGray));
-
-            let row = Row::new(vec![
-                Cell::from(num),
-                Cell::from(tmux_name.to_string()),
-                Cell::from(window_name.to_string()).style(Style::default().fg(Color::Magenta)),
-                project_cell,
-                dir_cell,
-                status_cell,
-                Cell::from(session.model_display()),
-                Cell::from(session.token_display()).style(token_style),
-                Cell::from(activity),
-            ]);
+            let mut cells = vec![Cell::from(num)];
+            cells.extend(columns.iter().map(|&col| render_column(col, session)));
+            let row = Row::new(cells);
 
             if session.status == SessionStatus::Input {
                 row.style(Style::default().bg(Color::Rgb(50, 40, 0)))
@@ -146,17 +70,8 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let widths = [
-        Constraint::Length(4),   // #
-        Constraint::Length(16),  // Session
-        Constraint::Length(16),  // Window
-        Constraint::Min(20),    // Project (repo + branch)
-        Constraint::Length(20), // Directory
-        Constraint::Length(10), // Status
-        Constraint::Length(20), // Model
-        Constraint::Length(14), // Context
-        Constraint::Length(14), // Last Activity
-    ];
+    let mut widths = vec![Constraint::Length(4)]; // #
+    widths.extend(columns.iter().map(|c| column_constraint(*c, app)));
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -167,6 +82,89 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
         );
 
     frame.render_widget(table, area);
+}
+
+/// Width for a column: a user override (if any) or the built-in default.
+fn column_constraint(col: Column, app: &App) -> Constraint {
+    if let Some(&w) = app.config.table.widths.get(&col) {
+        return Constraint::Length(w);
+    }
+    match col {
+        Column::Session => Constraint::Length(16),
+        Column::Window => Constraint::Length(16),
+        Column::Project => Constraint::Min(20),
+        Column::Directory => Constraint::Length(20),
+        Column::Status => Constraint::Length(10),
+        Column::Model => Constraint::Length(20),
+        Column::Context => Constraint::Length(14),
+        Column::LastActivity => Constraint::Length(14),
+    }
+}
+
+/// Render a single table cell for the given column of a session.
+fn render_column(col: Column, session: &Session) -> Cell<'static> {
+    match col {
+        Column::Session => {
+            let name = session.tmux_session.as_deref().unwrap_or("—");
+            Cell::from(name.to_string())
+        }
+        Column::Window => {
+            let name = session
+                .tmux_window
+                .as_deref()
+                .filter(|w| !w.is_empty())
+                .unwrap_or("—");
+            Cell::from(name.to_string()).style(Style::default().fg(Color::Magenta))
+        }
+        Column::Project => {
+            // repo::relative_dir::branch
+            let mut spans = vec![Span::raw(session.project_name.clone())];
+            if let Some(dir) = &session.relative_dir {
+                spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(dir.clone(), Style::default().fg(Color::Cyan)));
+            }
+            if let Some(b) = &session.branch {
+                spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(b.clone(), Style::default().fg(Color::Green)));
+            }
+            Cell::from(Line::from(spans))
+        }
+        Column::Directory => {
+            Cell::from(shorten_home(&session.cwd)).style(Style::default().fg(Color::DarkGray))
+        }
+        Column::Status => {
+            let (dot, label, color) = match session.status {
+                SessionStatus::New => ("●", "New", Color::Blue),
+                SessionStatus::Working => ("●", "Working", Color::Green),
+                SessionStatus::Idle => ("●", "Idle", Color::DarkGray),
+                SessionStatus::Input => ("●", "Input", Color::Yellow),
+            };
+            Cell::from(Line::from(vec![
+                Span::styled(dot, Style::default().fg(color)),
+                Span::styled(format!(" {label}"), Style::default().fg(color)),
+            ]))
+        }
+        Column::Model => Cell::from(session.model_display()),
+        Column::Context => {
+            let token_ratio = session.token_ratio();
+            let style = if token_ratio > 0.9 {
+                Style::default().fg(Color::Red)
+            } else if token_ratio > 0.75 {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+            Cell::from(session.token_display()).style(style)
+        }
+        Column::LastActivity => {
+            let activity = session
+                .last_activity
+                .as_deref()
+                .map(format_timestamp)
+                .unwrap_or_else(|| "—".to_string());
+            Cell::from(activity)
+        }
+    }
 }
 
 fn render_search_bar(frame: &mut Frame, app: &App, area: Rect) {

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::config::Config;
 use crate::session::{self, Session};
 use crate::tmux;
 
@@ -24,6 +25,7 @@ pub struct App {
     pub filter_active: bool,              // search input has focus
     pub filter_text: String,              // current search query
     pub filter_cursor: usize,             // cursor position in query
+    pub config: Config,                   // table column configuration
     prev_sessions: HashMap<String, Session>,
 }
 
@@ -42,6 +44,7 @@ impl App {
             filter_active: false,
             filter_text: String::new(),
             filter_cursor: 0,
+            config: Config::default(),
             prev_sessions: HashMap::new(),
         }
     }

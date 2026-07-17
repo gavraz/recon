@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod config;
 mod history;
 mod model;
 mod new_session;
@@ -95,6 +96,20 @@ fn main() -> io::Result<()> {
             app.refresh();
             println!("{}", app.to_json(&tag));
         }
+        Some(Command::Config { available_columns }) => {
+            if available_columns {
+                print!("{}", config::available_columns_help());
+            } else {
+                match config::config_path() {
+                    Some(p) => {
+                        let exists = if p.exists() { "" } else { " (not present — using defaults)" };
+                        println!("Config file: {}{exists}", p.display());
+                    }
+                    None => println!("Could not determine config directory."),
+                }
+                println!("Run `recon config --available-columns` to list configurable columns.");
+            }
+        }
         Some(Command::Park) => {
             park::park();
         }
@@ -107,21 +122,28 @@ fn main() -> io::Result<()> {
             } else {
                 ViewMode::Table
             };
-            run_tui(start_mode)?;
+            let config = match config::load() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            run_tui(start_mode, config)?;
         }
     }
 
     Ok(())
 }
 
-fn run_tui(start_mode: ViewMode) -> io::Result<()> {
+fn run_tui(start_mode: ViewMode, config: config::Config) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, start_mode);
+    let result = run_app(&mut terminal, start_mode, config);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -134,8 +156,13 @@ fn run_tui(start_mode: ViewMode) -> io::Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, start_mode: ViewMode) -> io::Result<()> {
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    start_mode: ViewMode,
+    config: config::Config,
+) -> io::Result<()> {
     let mut app = App::new();
+    app.config = config;
     app.view_mode = start_mode;
     app.refresh();
 

@@ -142,6 +142,30 @@ recon unpark                                 # Restore previously parked session
 | `v` | Switch to table view |
 | `q` | Quit |
 
+## Configuration
+
+recon reads an optional config file from the platform config directory:
+
+- Linux: `~/.config/recon/config.toml`
+- macOS: `~/Library/Application Support/recon/config.toml`
+
+With no file present, recon uses its built-in defaults. Today the config controls
+which columns the table shows and in what order:
+
+```toml
+[table]
+# Pick and order the columns. The leading `#` index column is always shown.
+columns = ["session", "window", "project", "status", "context", "last_activity"]
+
+# Optional per-column width overrides (in cells).
+[table.widths]
+window = 24
+```
+
+Run `recon config --available-columns` to list every column name (and print an
+example stanza). A malformed config or an unknown column name fails fast with a
+clear error on launch rather than silently falling back.
+
 ## tmux config
 
 The included `tmux.conf` provides keybindings to open recon as a popup overlay:

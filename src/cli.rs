@@ -52,6 +52,12 @@ pub enum Command {
         #[arg(long)]
         tag: Vec<String>,
     },
+    /// Inspect recon configuration
+    Config {
+        /// List the columns available for the table
+        #[arg(long)]
+        available_columns: bool,
+    },
     /// Save all live sessions to disk for restoring later
     Park,
     /// Restore previously parked sessions
